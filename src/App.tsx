@@ -5,7 +5,7 @@ import React, {
   useMemo 
 } from 'react';
 import { User } from 'firebase/auth';
-import { doc, setDoc } from 'firebase/firestore'; 
+import { doc, setDoc, writeBatch, collection } from 'firebase/firestore'; 
 import { db } from '@/services/firebase';
 
 import UnauthorizedView from '@/pages/UnauthorizedView';
@@ -52,7 +52,7 @@ import { Shield } from 'lucide-react';
 // メインアプリケーションコンポーネント
 export default function App() {
   // 認証とユーザーデータの取得
-  const { user, isAuthChecking, userProfile, loginAsGuest } = useAuth();
+  const { user, isAuthChecking, userProfile, loginAsGuest, logout } = useAuth();
   const [viewingUid, setViewingUid] = useState<string | null>(null); // 代理操作中のユーザーID
   const targetUid = viewingUid || user?.uid; // 対象ユーザーのID
 
@@ -146,20 +146,26 @@ export default function App() {
   };
 
   // 営業記録の保存処理 - 新規作成または編集時のデータ永続化
-  const handleSaveRecord = useCallback(async (...args: any[]) => {
+  const handleSaveRecord = useCallback(async (recordData: Partial<SalesRecord>) => {
     if (!user) return;
-    const [amt, toll, method, ride, nonCash, timestamp, pickup, dropoff, pickupCoords, dropoffCoords, pMale, pFemale, remarks, isBadCustomer] = args;
-    const editId = recordModalState.initialData?.id;
+    
+    const editId = recordData.id || recordModalState.initialData?.id;
     const startHour = monthlyStats.businessStartHour ?? 9;
     
+    // 既存の記録がある場合はマージ、なければ新規作成
     const recordObj: SalesRecord = { 
-      id: editId || Math.random().toString(36).substr(2, 9), 
-      amount: amt, toll, paymentMethod: method, nonCashAmount: nonCash, rideType: ride, timestamp, 
-      pickupLocation: pickup, dropoffLocation: dropoff, pickupCoords: pickupCoords || "", dropoffCoords: dropoffCoords || "",
-      passengersMale: pMale, passengersFemale: pFemale, remarks, isBadCustomer
+      id: editId || Math.random().toString(36).substr(2, 9),
+      amount: recordData.amount ?? 0,
+      toll: recordData.toll ?? 0,
+      paymentMethod: recordData.paymentMethod || 'CASH',
+      nonCashAmount: (recordData.paymentMethod && recordData.paymentMethod !== 'CASH') ? (recordData.amount || 0) : 0,
+      rideType: recordData.rideType || 'FLOW',
+      timestamp: recordData.timestamp || Date.now(),
+      pickupCoords: recordData.pickupCoords,
+      remarks: recordData.remarks || recordModalState.initialData?.remarks,
     };
 
-    const isSameDay = shift && getBusinessDate(shift.startTime, startHour) === getBusinessDate(timestamp, startHour);
+    const isSameDay = shift && getBusinessDate(shift.startTime, startHour) === getBusinessDate(recordObj.timestamp, startHour);
     let newShift = shift;
     let newHistory = history;
 
@@ -169,11 +175,11 @@ export default function App() {
         if (isSameDay) newShift = { ...shift!, records: shift!.records.map(r => r.id === editId ? recordObj : r).sort((a, b) => a.timestamp - b.timestamp) };
         else { newShift = { ...shift!, records: shift!.records.filter(r => r.id !== editId) }; newHistory = [...history, recordObj].sort((a, b) => a.timestamp - b.timestamp); }
       } else {
-        if (isSameDay) { newHistory = history.filter(r => r.id !== editId); newShift = { ...shift!, records: [...shift!.records, recordObj].sort((a, b) => a.timestamp - b.timestamp) }; }
+        if (isSameDay && shift) { newHistory = history.filter(r => r.id !== editId); newShift = { ...shift, records: [...shift.records, recordObj].sort((a, b) => a.timestamp - b.timestamp) }; }
         else newHistory = history.map(r => r.id === editId ? recordObj : r).sort((a, b) => a.timestamp - b.timestamp);
       }
     } else {
-      if (isSameDay) newShift = { ...shift!, records: [...shift!.records, recordObj].sort((a, b) => a.timestamp - b.timestamp) };
+      if (isSameDay && shift) newShift = { ...shift, records: [...shift.records, recordObj].sort((a, b) => a.timestamp - b.timestamp) };
       else newHistory = [...history, recordObj].sort((a, b) => a.timestamp - b.timestamp);
     }
 
@@ -211,6 +217,19 @@ export default function App() {
   const handleGuestLogin = () => {
     loginAsGuest();
     setMonthlyStats(prev => ({ ...prev, userName: 'ゲストユーザー' }));
+  };
+
+  // ログアウト処理 - 認証解除とUI状態のリセット
+  const handleLogout = async () => {
+    await logout();
+    // UI状態を初期値にリセット
+    setActiveTab('home');
+    setIsSettingsOpen(false);
+    setIsDailyReportOpen(false);
+    setIsShiftEditOpen(false);
+    setRecordModalState({ open: false });
+    setViewingUid(null);
+    setIsAdminMode(false);
   };
 
   if (appInitLoading || isAuthChecking) return <SplashScreen />;
@@ -262,13 +281,22 @@ export default function App() {
       
       {recordModalState.open && (
         <RecordModal 
-          initialData={recordModalState.initialData} enabledMethods={monthlyStats.enabledPaymentMethods} 
-          enabledRideTypes={monthlyStats.enabledRideTypes || ALL_RIDE_TYPES} customLabels={monthlyStats.customPaymentLabels || {}} 
-          onClose={() => setRecordModalState({ open: false })} onSave={handleSaveRecord} onDelete={handleDeleteRecord} businessStartHour={monthlyStats.businessStartHour ?? 9} 
+          editingRecord={recordModalState.initialData as SalesRecord}
+          stats={monthlyStats}
+          onClose={() => setRecordModalState({ open: false })} 
+          onSave={handleSaveRecord} 
+          onDelete={handleDeleteRecord} 
         />
       )}
-      {isDailyReportOpen && shift && <DailyReportModal shift={shift} customLabels={monthlyStats.customPaymentLabels || {}} enabledMethods={monthlyStats.enabledPaymentMethods} businessStartHour={monthlyStats.businessStartHour ?? 9} onConfirm={finalizeShift} onClose={() => setIsDailyReportOpen(false)} />}
-      {isSettingsOpen && <SettingsModal stats={monthlyStats} isAdmin={userProfile?.role === 'admin'} onUpdateStats={handleUpdateMonthlyStats} onClose={() => setIsSettingsOpen(false)} onImpersonate={(uid) => { setViewingUid(uid); setIsSettingsOpen(false); }} />}
+      {isDailyReportOpen && shift && (
+        <DailyReportModal 
+          records={shift.records} 
+          stats={monthlyStats} 
+          onClose={() => setIsDailyReportOpen(false)} 
+          onConfirm={finalizeShift}
+        />
+      )}
+      {isSettingsOpen && <SettingsModal stats={monthlyStats} isAdmin={userProfile?.role === 'admin'} onUpdateStats={handleUpdateMonthlyStats} onClose={() => setIsSettingsOpen(false)} onImpersonate={(uid) => { setViewingUid(uid); setIsSettingsOpen(false); }} onLogout={handleLogout} />}
       {isShiftEditOpen && shift && <ShiftEditModal shift={shift} onClose={() => setIsShiftEditOpen(false)} onSave={(st, ph) => { if(shift) { const s = {...shift, startTime:st, plannedHours:ph}; setShift(s); saveToDB({shift: s}); } }} />}
       
       <Navigation activeTab={activeTab} onTabChange={setActiveTab} />

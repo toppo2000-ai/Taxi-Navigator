@@ -59,6 +59,7 @@ interface SettingsModalProps {
   onImportRecords?: (records: SalesRecord[], targetUid?: string) => void;
   onClose: () => void;
   onImpersonate?: (uid: string) => void;
+  onLogout: () => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ 
@@ -67,9 +68,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onUpdateStats, 
   onImportRecords, 
   onClose, 
-  onImpersonate 
-}) => {  const { logout } = useAuth();
-  
+  onImpersonate,
+  onLogout
+}) => {
   // タブ管理：'basic'（基本）→ 'display'（表示）→ 'admin'（管理者）
   const [activeTab, setActiveTab] = useState<'basic' | 'display' | 'admin'>('basic');
   
@@ -100,6 +101,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   useEffect(() => {
     // 他のユーザーリストを取得
     const fetchUsers = async () => {
+      if (stats.uid === 'guest-user') return;
       try {
         const querySnapshot = await getDocs(collection(db, "public_status"));
         const users = querySnapshot.docs
@@ -594,7 +596,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
            <button 
              onClick={() => {
                if (window.confirm('ログアウトしますか？')) {
-                 logout();
+                 onLogout();
                }
              }} 
              className="w-full bg-red-900/20 text-red-500 font-bold py-3 rounded-xl border border-red-900/50 hover:bg-red-900/30 active:scale-[0.98] transition-all flex items-center justify-center gap-2"

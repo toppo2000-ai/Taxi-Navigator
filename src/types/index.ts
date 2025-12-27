@@ -71,7 +71,7 @@ export interface MonthlyStats {
 
 // デフォルトの支払い方法の順序
 export const DEFAULT_PAYMENT_ORDER: PaymentMethod[] = [
-  'CASH', 'CARD', 'TICKET', 'QR', 'didi', 'NET', 'E_MONEY', 'TRANSPORT'
+  'CASH', 'CARD', 'TICKET', 'QR', 'DIDI', 'NET', 'E_MONEY', 'TRANSPORT'
 ] as PaymentMethod[];
 
 // 全乗車タイプのリスト

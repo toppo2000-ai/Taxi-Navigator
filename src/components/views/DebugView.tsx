@@ -36,6 +36,8 @@ const DebugView: React.FC = () => {
   // Firestore の public_status コレクションをリアルタイム監視
   // 全ユーザーの公開データを取得し、自分のデータを抽出
   useEffect(() => {
+    if (!currentUser || currentUser.uid === 'guest-user') return;
+
     const q = query(collection(db, "public_status"));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const users = snapshot.docs.map(doc => ({

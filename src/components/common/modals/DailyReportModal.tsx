@@ -7,7 +7,8 @@ import {
   getBillingPeriod, 
   PAYMENT_LABELS, 
   RIDE_LABELS, 
-  formatDate 
+  formatDate,
+  getBusinessDate
 } from '@/utils';
 import { ModalWrapper } from './ModalWrapper';
 import { useExport } from '@/hooks/useExport';
@@ -20,9 +21,10 @@ interface DailyReportModalProps {
   records: SalesRecord[];
   stats: MonthlyStats;
   onClose: () => void;
+  onConfirm?: () => void;
 }
 
-export const DailyReportModal: React.FC<DailyReportModalProps> = ({ records, stats, onClose }) => {
+export const DailyReportModal: React.FC<DailyReportModalProps> = ({ records, stats, onClose, onConfirm }) => {
   // 請求期間を計算（締日と営業開始時間に基づく）
   const { start, end } = getBillingPeriod(new Date(), stats.shimebiDay, stats.businessStartHour);
   const { exportToCsv, shareText } = useExport();
@@ -41,7 +43,8 @@ export const DailyReportModal: React.FC<DailyReportModalProps> = ({ records, sta
 
     // 売上記録を日別に集計
     records.forEach(r => {
-      const d = map.get(r.date);
+      const dateStr = getBusinessDate(r.timestamp, stats.businessStartHour ?? 9);
+      const d = map.get(dateStr);
       if (d) {
         d.total += r.amount;
         d.count += 1;
@@ -141,6 +144,21 @@ export const DailyReportModal: React.FC<DailyReportModalProps> = ({ records, sta
             </div>
           )}
         </div>
+
+        {/* 終了確認ボタン（onConfirmがある場合のみ表示） */}
+        {onConfirm && (
+          <div className="pt-4">
+            <button
+              onClick={() => {
+                onConfirm();
+                onClose();
+              }}
+              className="w-full py-4 bg-gradient-to-r from-emerald-600 to-teal-600 rounded-2xl text-white font-black text-lg shadow-lg shadow-emerald-900/20 active:scale-[0.98] transition-transform"
+            >
+              営業を終了して保存する
+            </button>
+          </div>
+        )}
       </div>
     </ModalWrapper>
   );

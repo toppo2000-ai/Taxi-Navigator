@@ -531,6 +531,8 @@ const HistoryView: React.FC<HistoryViewProps> = ({
 
   // Firestoreから公開設定されているユーザーのステータスを取得
   useEffect(() => {
+    if (!user || user.uid === 'guest-user') return;
+
     const q = query(collection(db, "public_status"), orderBy("lastUpdated", "desc"), limit(50));
     const unsub = onSnapshot(q, (snap) => {
         const users: any[] = [];
@@ -539,6 +541,8 @@ const HistoryView: React.FC<HistoryViewProps> = ({
             users.push(data);
         });
         setColleagues(users);
+    }, (error) => {
+        console.error("Failed to fetch colleagues:", error);
     });
     return () => unsub();
   }, []);

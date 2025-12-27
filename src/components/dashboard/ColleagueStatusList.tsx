@@ -110,6 +110,8 @@ const ColleagueDetailModal: React.FC<{
             } else {
                 setRealtimeData({ records: [], total: 0 });
             }
+        }, (error) => {
+            console.error("Failed to fetch colleague detail:", error);
         });
 
         return () => unsub();
@@ -214,6 +216,8 @@ export const ColleagueStatusList: React.FC<{ followingUsers: string[] }> = ({ fo
 
   // Firestore リアルタイムリスナー：全同僚のデータを監視
   useEffect(() => {
+    if (!user || user.uid === 'guest-user') return;
+
     const q = query(collection(db, "public_status"));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const users: ColleagueData[] = [];
@@ -241,6 +245,8 @@ export const ColleagueStatusList: React.FC<{ followingUsers: string[] }> = ({ fo
       });
 
       setColleagues(users);
+    }, (error) => {
+      console.error("Failed to fetch colleagues list:", error);
     });
     return () => unsubscribe();
   }, []);

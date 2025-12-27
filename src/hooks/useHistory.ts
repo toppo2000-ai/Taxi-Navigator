@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { collection, onSnapshot, query, orderBy, limit } from 'firebase/firestore';
+import { onSnapshot, doc } from 'firebase/firestore';
 import { db } from '@/services/firebase';
 import { SalesRecord, DayMetadata } from '@/types';
 
@@ -26,31 +26,21 @@ export const useHistory = (targetUid: string | undefined) => {
       return;
     }
 
-    // 履歴データをリアルタイム監視 (最新500件)
-    const historyQuery = query(
-      collection(db, 'users', targetUid, 'history'),
-      orderBy('timestamp', 'desc'),
-      limit(500)
-    );
-
-    const unsubHistory = onSnapshot(historyQuery, (snapshot) => {
-      const records = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as SalesRecord));
-      setHistory(records);
-    });
-
-    // 日付メタデータをリアルタイム監視
-    const unsubMetadata = onSnapshot(collection(db, 'users', targetUid, 'day_metadata'), (snapshot) => {
-      const metadata: Record<string, DayMetadata> = {};
-      snapshot.docs.forEach(doc => {
-        metadata[doc.id] = doc.data() as DayMetadata;
-      });
-      setDayMetadata(metadata);
+    // 履歴データと日付メタデータをリアルタイム監視
+    const unsubData = onSnapshot(doc(db, 'users', targetUid), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setHistory(data.history || []);
+        setDayMetadata(data.dayMetadata || {});
+      } else {
+        setHistory([]);
+        setDayMetadata({});
+      }
     });
 
     // クリーンアップ
     return () => {
-      unsubHistory();
-      unsubMetadata();
+      unsubData();
     };
   }, [targetUid]);
 

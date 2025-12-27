@@ -84,11 +84,15 @@ const AnalysisView: React.FC<AnalysisViewProps> = ({ history, stats, onNavigateT
 
   // ========== Effects ==========
   // Firestore の public_status コレクションをリアルタイムで監視
-  // 全ユーザーの topRecords (歴代最高記録) と monthlyTotal (月間売上) を取得
+  // 全ユーザー topRecords (歴代最高記録) と monthlyTotal (月間売上) を取得
   useEffect(() => {
+    if (!user || user.uid === 'guest-user') return;
+
     const unsub = onSnapshot(collection(db, "public_status"), (snapshot) => {
       const users = snapshot.docs.map(doc => ({ ...doc.data(), uid: doc.id }));
       setPublicStatusData(users);
+    }, (error) => {
+      console.error("Failed to fetch public status data:", error);
     });
     return () => unsub();
   }, []);

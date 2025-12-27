@@ -11,25 +11,31 @@ import { toCommaSeparated } from '@/utils';
 // onChange: 数値変更時のコールバック
 // onConfirm: 確定ボタン押下時のコールバック
 interface KeypadViewProps {
-  label: string;
+  label?: string;
   value: string;
-  colorClass: string;
+  colorClass?: string;
   onChange: (val: string) => void;
   onConfirm: () => void;
 }
 
-export const KeypadView: React.FC<KeypadViewProps> = ({ label, value, colorClass, onChange, onConfirm }) => {
+export const KeypadView: React.FC<KeypadViewProps> = ({ 
+  label = "金額", 
+  value, 
+  colorClass = "text-blue-400", 
+  onChange, 
+  onConfirm 
+}) => {
   // 数字をクリック時に入力値に追加
   // 最初の0は新規数字に置き換え
   const appendDigit = (digit: string) => {
-    const current = value.replace(/,/g, '');
+    const current = (value || "0").replace(/,/g, '');
     const updated = current === "0" ? digit : current + digit;
     onChange(toCommaSeparated(updated));
   };
 
   // バックスペース機能（最後の1文字を削除）
   const handleDelete = () => {
-    const current = value.replace(/,/g, '');
+    const current = (value || "0").replace(/,/g, '');
     const updated = current.length <= 1 ? "0" : current.slice(0, -1);
     onChange(toCommaSeparated(updated));
   };
@@ -44,8 +50,8 @@ export const KeypadView: React.FC<KeypadViewProps> = ({ label, value, colorClass
       {/* 入力値表示エリア */}
       <div className="flex flex-col space-y-2">
         <span className="text-lg font-bold ml-2 uppercase tracking-widest text-gray-400">{label}入力</span>
-        <div className={`rounded-3xl p-5 flex items-center justify-end border min-h-[80px] shadow-inner overflow-hidden ${colorClass.replace('text-', 'border-').split(' ')[0]} bg-[#1A2536]`}>
-           <span className={`text-[clamp(3rem,12vw,4.5rem)] font-black tracking-tighter truncate w-full text-right ${colorClass}`}>¥{value}</span>
+        <div className={`rounded-3xl p-5 flex items-center justify-end border min-h-[80px] shadow-inner overflow-hidden ${(colorClass || 'text-blue-400').replace('text-', 'border-').split(' ')[0]} bg-[#1A2536]`}>
+           <span className={`text-[clamp(3rem,12vw,4.5rem)] font-black tracking-tighter truncate w-full text-right ${colorClass || 'text-blue-400'}`}>¥{value}</span>
         </div>
       </div>
 

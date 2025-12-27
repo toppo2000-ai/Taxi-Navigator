@@ -54,28 +54,21 @@ export const useShift = (user: User | null, targetUid: string | undefined, stats
       return;
     }
 
-    // 現在のシフト情報をリアルタイム監視
-    const unsubShift = onSnapshot(doc(db, 'users', targetUid, 'current_data', 'current_shift'), (docSnap) => {
+    // 現在のシフト情報と休憩状態をリアルタイム監視
+    const unsubData = onSnapshot(doc(db, 'users', targetUid), (docSnap) => {
       if (docSnap.exists()) {
-        setShift(sanitizeShift(docSnap.data()));
+        const data = docSnap.data();
+        setShift(sanitizeShift(data.shift));
+        setBreakState(data.breakState || { isActive: false, startTime: null });
       } else {
         setShift(null);
-      }
-    });
-
-    // 休憩状態をリアルタイム監視
-    const unsubBreak = onSnapshot(doc(db, 'users', targetUid, 'current_data', 'break_state'), (docSnap) => {
-      if (docSnap.exists()) {
-        setBreakState(docSnap.data() as BreakState);
-      } else {
         setBreakState({ isActive: false, startTime: null });
       }
     });
 
     // クリーンアップ
     return () => {
-      unsubShift();
-      unsubBreak();
+      unsubData();
     };
   }, [targetUid]);
 
@@ -101,12 +94,23 @@ export const useShift = (user: User | null, targetUid: string | undefined, stats
       // 月間売上を計算
       const { totalSales: totalMonthlySales } = calculatePeriodStats(stats, history, shift);
 
+      // 全ての記録を統合（履歴 + 現在のシフト）
+      const allRecords = [...history, ...(shift?.records || [])];
+      
+      // 重複を排除（IDベース）
+      const uniqueRecordsMap = new Map();
+      allRecords.forEach(r => uniqueRecordsMap.set(r.id, r));
+      const uniqueRecords = Array.from(uniqueRecordsMap.values()) as SalesRecord[];
+
+      // 歴代最高売上トップ10を抽出
+      const topRecords = [...uniqueRecords]
+        .sort((a, b) => b.amount - a.amount)
+        .slice(0, 10);
+
       // 現在のシフトの売上を計算
       const currentShiftSales = shift 
         ? shift.records.reduce((sum, r) => sum + r.amount, 0) 
         : 0;
-            allRecords.forEach(r => uniqueRecordsMap.set(r.id, r));
-      const uniqueRecords = Array.from(uniqueRecordsMap.values()) as SalesRecord[];
 
       // 月別のデータを集計
       const monthsData: Record<string, any> = {};

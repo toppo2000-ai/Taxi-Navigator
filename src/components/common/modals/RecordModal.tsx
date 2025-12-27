@@ -14,7 +14,8 @@ import {
   ChevronLeft, 
   Plus, 
   Minus, 
-  AlertCircle 
+  AlertCircle,
+  MessageSquare
 } from 'lucide-react';
 import { SalesRecord, MonthlyStats, PaymentMethod, RideType, ALL_RIDE_TYPES } from '@/types';
 import { 
@@ -36,7 +37,7 @@ import { useGeolocation } from '@/hooks/useGeolocation';
 // editingRecord: 編集中の記録（なければ新規作成）
 interface RecordModalProps {
   stats: MonthlyStats;
-  onSave: (record: Omit<SalesRecord, 'id'>) => void;
+  onSave: (record: Partial<SalesRecord>) => void;
   onDelete?: (id: string) => void;
   onClose: () => void;
   editingRecord?: SalesRecord | null;
@@ -50,13 +51,17 @@ export const RecordModal: React.FC<RecordModalProps> = ({
   editingRecord 
 }) => {
   // ステップ管理：'amount'（金額入力）→ 'details'（詳細設定）
-  const [step, setStep] = useState<'amount' | 'details'>(editingRecord ? 'details' : 'amount');
+  const [step, setStep] = useState<'amount' | 'details'>(editingRecord?.id ? 'details' : 'amount');
   
   // フォーム状態
-  const [amountStr, setAmountStr] = useState(editingRecord ? editingRecord.amount.toLocaleString() : "");
+  const [amountStr, setAmountStr] = useState(editingRecord?.amount ? editingRecord.amount.toLocaleString() : "");
   const [tollStr, setTollStr] = useState(editingRecord?.toll ? editingRecord.toll.toLocaleString() : "0");
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(editingRecord?.paymentMethod || stats.enabledPaymentMethods[0] || 'CASH');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(
+    editingRecord?.paymentMethod || 
+    (stats?.enabledPaymentMethods && stats.enabledPaymentMethods.length > 0 ? stats.enabledPaymentMethods[0] : 'CASH')
+  );
   const [rideType, setRideType] = useState<RideType>(editingRecord?.rideType || 'FLOW');
+  const [remarks, setRemarks] = useState<string>(editingRecord?.remarks || "");
   const { location, error: locationError, isLocating, getCurrentLocation, setLocation } = useGeolocation();
   const [timestamp, setTimestamp] = useState<number>(editingRecord?.timestamp || Date.now());
 
@@ -65,12 +70,15 @@ export const RecordModal: React.FC<RecordModalProps> = ({
 
   useEffect(() => {
     // 編集時は既存のロケーション使用、新規時は自動取得
-    if (editingRecord?.location) {
-      setLocation(editingRecord.location);
-    } else if (!editingRecord) {
+    if (editingRecord?.pickupCoords) {
+      const [lat, lng] = editingRecord.pickupCoords.split(',').map(Number);
+      if (!isNaN(lat) && !isNaN(lng)) {
+        setLocation({ lat, lng });
+      }
+    } else if (!editingRecord?.id) {
       getCurrentLocation();
     }
-  }, [editingRecord, getCurrentLocation, setLocation]);
+  }, [editingRecord?.id, editingRecord?.pickupCoords, getCurrentLocation, setLocation]);
 
   // 保存処理：金額バリデーション後に記録を保存
   const handleSave = () => {
@@ -79,13 +87,14 @@ export const RecordModal: React.FC<RecordModalProps> = ({
     if (amount <= 0) return;
 
     onSave({
+      id: editingRecord?.id,
       amount,
       toll,
       paymentMethod,
       rideType,
-      location: location || undefined,
+      remarks,
+      pickupCoords: location ? `${location.lat},${location.lng}` : undefined,
       timestamp,
-      date: businessDate
     });
     onClose();
   };
@@ -128,9 +137,11 @@ export const RecordModal: React.FC<RecordModalProps> = ({
 
             {/* キーパッド */}
             <KeypadView 
+              label="売上"
               value={amountStr} 
+              colorClass="text-blue-400"
               onChange={setAmountStr} 
-              onComplete={() => setStep('details')} 
+              onConfirm={() => setStep('details')} 
             />
 
             {/* 次へボタン */}
@@ -278,6 +289,19 @@ export const RecordModal: React.FC<RecordModalProps> = ({
                   <p className="text-xs font-bold text-gray-600">位置情報なし</p>
                 </div>
               )}
+            </div>
+
+            {/* 備考 */}
+            <div className="bg-gray-900/50 p-5 rounded-3xl border border-gray-800 space-y-4">
+              <label className="text-sm font-bold text-gray-500 block uppercase tracking-widest flex items-center gap-2">
+                <MessageSquare className="w-4 h-4" /> 備考
+              </label>
+              <textarea 
+                value={remarks} 
+                onChange={(e) => setRemarks(e.target.value)}
+                placeholder="メモを入力..."
+                className="bg-gray-800 text-white text-base font-bold w-full outline-none p-4 rounded-2xl border border-gray-700 min-h-[100px] focus:border-amber-500 transition-colors"
+              />
             </div>
 
             {/* 削除・保存ボタン */}

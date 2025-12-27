@@ -39,9 +39,12 @@ export const useStats = (targetUid: string | undefined) => {
     }
 
     // 月間統計をリアルタイム監視
-    const unsubStats = onSnapshot(doc(db, 'users', targetUid, 'settings', 'monthly_stats'), (docSnap) => {
+    const unsubStats = onSnapshot(doc(db, 'users', targetUid), (docSnap) => {
       if (docSnap.exists()) {
-        setMonthlyStats(prev => ({ ...prev, ...docSnap.data() }));
+        const data = docSnap.data();
+        if (data.monthlyStats) {
+          setMonthlyStats(prev => ({ ...prev, ...data.monthlyStats }));
+        }
       }
     });
 
