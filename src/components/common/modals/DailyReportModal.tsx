@@ -8,6 +8,7 @@ import {
   formatDate 
 } from '@/utils';
 import { ModalWrapper } from './ModalWrapper';
+import { useExport } from '@/hooks/useExport';
 
 interface DailyReportModalProps {
   records: SalesRecord[];
@@ -17,6 +18,7 @@ interface DailyReportModalProps {
 
 export const DailyReportModal: React.FC<DailyReportModalProps> = ({ records, stats, onClose }) => {
   const { start, end } = getBillingPeriod(new Date(), stats.shimebiDay, stats.businessStartHour);
+  const { exportToCsv, shareText } = useExport();
   
   const dailyData = useMemo(() => {
     const map = new Map<string, { total: number, count: number, methods: Record<string, number> }>();
@@ -50,16 +52,11 @@ export const DailyReportModal: React.FC<DailyReportModalProps> = ({ records, sta
       ...stats.enabledPaymentMethods.map(m => data.methods[m] || 0)
     ]);
 
-    const csvContent = [
-      headers.join(','),
-      ...rows.map(row => row.join(','))
-    ].join('\n');
-
-    const blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = `daily_report_${formatDate(new Date())}.csv`;
-    link.click();
+    exportToCsv({
+      headers,
+      rows,
+      filename: `daily_report_${formatDate(new Date())}.csv`
+    });
   };
 
   const handleShare = async () => {
@@ -67,16 +64,7 @@ export const DailyReportModal: React.FC<DailyReportModalProps> = ({ records, sta
       `${date}: ¥${data.total.toLocaleString()} (${data.count}回)`
     ).join('\n');
 
-    if (navigator.share) {
-      try {
-        await navigator.share({ title: '日報', text });
-      } catch (e) {
-        console.error(e);
-      }
-    } else {
-      await navigator.clipboard.writeText(text);
-      alert('クリップボードにコピーしました');
-    }
+    await shareText(text, '日報');
   };
 
   return (

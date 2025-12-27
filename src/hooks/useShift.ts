@@ -3,7 +3,7 @@ import { doc, onSnapshot, setDoc, serverTimestamp } from 'firebase/firestore';
 import { User } from 'firebase/auth';
 import { db } from '@/services/firebase';
 import { Shift, SalesRecord, MonthlyStats, BreakState } from '@/types';
-import { getBusinessDate, getBillingPeriod, formatDate } from '@/utils';
+import { getBusinessDate, getBillingPeriod, formatDate, calculatePeriodStats } from '@/utils';
 
 export const sanitizeShift = (rawShift: any): Shift | null => {
   if (!rawShift) return null;
@@ -87,26 +87,12 @@ export const useShift = (user: User | null, targetUid: string | undefined, stats
       const startStr = formatDate(start);
       const endStr = formatDate(adjustedEnd);
       
-      const periodHistorySales = history
-        .filter(r => {
-          const rDate = getBusinessDate(r.timestamp, startHour);
-          return rDate >= startStr && rDate <= endStr;
-        })
-        .reduce((sum, r) => sum + r.amount, 0);
+      const { totalSales: totalMonthlySales } = calculatePeriodStats(stats, history, shift);
 
       const currentShiftSales = shift 
         ? shift.records.reduce((sum, r) => sum + r.amount, 0) 
         : 0;
-      
-      const totalMonthlySales = periodHistorySales + currentShiftSales;
-
-      const allHistoryRecords = [...history, ...(shift ? shift.records : [])];
-      allHistoryRecords.sort((a, b) => b.amount - a.amount);
-      const topRecords = allHistoryRecords.slice(0, 5);
-
-      const allRecords = [...history, ...(shift?.records || [])];
-      const uniqueRecordsMap = new Map();
-      allRecords.forEach(r => uniqueRecordsMap.set(r.id, r));
+            allRecords.forEach(r => uniqueRecordsMap.set(r.id, r));
       const uniqueRecords = Array.from(uniqueRecordsMap.values()) as SalesRecord[];
 
       const monthsData: Record<string, any> = {};

@@ -25,6 +25,7 @@ import {
   getBillingPeriod,
   formatDate,
   generateDefaultDutyDays,
+  calculatePeriodStats,
 } from '@/utils';
 
 import { useAuth } from '@/hooks/useAuth';
@@ -74,24 +75,12 @@ export default function App() {
   }, []);
 
   const currentPeriodStats = useMemo(() => {
-    const startHour = monthlyStats.businessStartHour ?? 9;
-    const { start, end } = getBillingPeriod(new Date(), monthlyStats.shimebiDay, startHour);
-    const adjustedEnd = new Date(end);
-    if (monthlyStats.shimebiDay !== 0) adjustedEnd.setDate(monthlyStats.shimebiDay);
-    
-    const startDateStr = formatDate(start);
-    const endDateStr = formatDate(adjustedEnd);
-    const allRecords = [...history, ...(shift?.records || [])];
-    
-    const validRecords = allRecords.filter(r => {
-      const rDate = getBusinessDate(r.timestamp, startHour);
-      return rDate >= startDateStr && rDate <= endDateStr;
-    });
+    const { totalSales, totalRides } = calculatePeriodStats(monthlyStats, history, shift);
 
     return { 
       ...monthlyStats, 
-      totalSales: validRecords.reduce((sum, r) => sum + r.amount, 0), 
-      totalRides: validRecords.length 
+      totalSales, 
+      totalRides 
     };
   }, [history, shift, monthlyStats]);
 

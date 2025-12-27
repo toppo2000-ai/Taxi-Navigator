@@ -24,6 +24,7 @@ import {
 } from '@/utils';
 import { ModalWrapper } from './ModalWrapper';
 import { KeypadView } from './KeypadView';
+import { useGeolocation } from '@/hooks/useGeolocation';
 
 interface RecordModalProps {
   stats: MonthlyStats;
@@ -44,40 +45,19 @@ export const RecordModal: React.FC<RecordModalProps> = ({
   const [amountStr, setAmountStr] = useState(editingRecord ? editingRecord.amount.toLocaleString() : "");
   const [tollStr, setTollStr] = useState(editingRecord?.toll ? editingRecord.toll.toLocaleString() : "0");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(editingRecord?.paymentMethod || stats.enabledPaymentMethods[0] || 'CASH');
-  const [rideType, setRideType] = useState<RideType>(editingRecord?.rideType || 'STREET');
-  const [location, setLocation] = useState<{lat: number, lng: number} | null>(editingRecord?.location || null);
-  const [isLocating, setIsLocating] = useState(false);
-  const [locationError, setLocationError] = useState<string | null>(null);
+  const [rideType, setRideType] = useState<RideType>(editingRecord?.rideType || 'FLOW');
+  const { location, error: locationError, isLocating, getCurrentLocation, setLocation } = useGeolocation();
   const [timestamp, setTimestamp] = useState<number>(editingRecord?.timestamp || Date.now());
 
   const businessDate = getBusinessDate(timestamp, stats.businessStartHour);
 
-  const getCurrentLocation = useCallback(() => {
-    if (!navigator.geolocation) {
-      setLocationError("このブラウザは位置情報をサポートしていません");
-      return;
-    }
-    setIsLocating(true);
-    setLocationError(null);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-        setIsLocating(false);
-      },
-      (err) => {
-        console.error(err);
-        setLocationError("位置情報の取得に失敗しました");
-        setIsLocating(false);
-      },
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
-  }, []);
-
   useEffect(() => {
-    if (!editingRecord) {
+    if (editingRecord?.location) {
+      setLocation(editingRecord.location);
+    } else if (!editingRecord) {
       getCurrentLocation();
     }
-  }, [editingRecord, getCurrentLocation]);
+  }, [editingRecord, getCurrentLocation, setLocation]);
 
   const handleSave = () => {
     const amount = fromCommaSeparated(amountStr);
