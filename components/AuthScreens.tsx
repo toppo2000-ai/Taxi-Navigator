@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Loader2, Car, User as UserIcon, ArrowRight } from 'lucide-react';
-import { signInWithRedirect } from 'firebase/auth';
+import { signInWithRedirect, signInWithPopup } from 'firebase/auth';
 import { auth, googleProvider } from '../firebase';
 import naviLoadingImage from '../assets/navi-loading.png';
 import naviChibiImage from '../assets/navi-chibi.png';
@@ -58,7 +58,7 @@ export const LoginScreen: React.FC = () => (
         </div>
 
         <button 
-          onClick={() => signInWithRedirect(auth, googleProvider)} 
+          onClick={() => signInWithPopup(auth, googleProvider).catch(() => signInWithRedirect(auth, googleProvider))} 
           className="group relative w-full bg-white text-black px-8 py-4 rounded-2xl font-black text-xl shadow-[0_0_20px_rgba(255,255,255,0.3)] hover:shadow-[0_0_30px_rgba(245,158,11,0.6)] active:scale-95 transition-all duration-300 overflow-hidden"
         >
           <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/50 to-transparent -translate-x-full group-hover:animate-shine" />
