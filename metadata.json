@@ -1,0 +1,7 @@
+{
+  "name": "Taxi Sales Pro",
+  "description": "A comprehensive sales management tool for taxi drivers featuring shift tracking, revenue analysis, and intuitive fare recording.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
