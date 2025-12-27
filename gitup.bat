@@ -1,25 +1,26 @@
 @echo off
+chcp 65001 > nul
 
 echo ==========================================
-echo  GitHub‚Ö‚ÌƒAƒbƒvƒ[ƒh‚ðŠJŽn‚µ‚Ü‚·
+echo  GitHubã¸ã®ã‚¢ãƒƒãƒ—ãƒ­ãƒ¼ãƒ‰ã‚’é–‹å§‹ã—ã¾ã™
 echo ==========================================
 
-:: 1. •ÏX‚ðƒXƒe[ƒWƒ“ƒO
+:: 1. å¤‰æ›´ã‚’ã‚¹ãƒ†ãƒ¼ã‚¸ãƒ³ã‚°
 git add .
 
-:: 2. ƒRƒ~ƒbƒgƒƒbƒZ[ƒW‚Ì“ü—Í‚ð‹‚ß‚é
-set /p msg="ƒRƒ~ƒbƒgƒƒbƒZ[ƒW‚ð“ü—Í‚µ‚Ä‚­‚¾‚³‚¢iEnter‚ÅuUpdatevj: "
+:: 2. ã‚³ãƒŸãƒƒãƒˆãƒ¡ãƒƒã‚»ãƒ¼ã‚¸ã®å…¥åŠ›ã‚’æ±‚ã‚ã‚‹
+set /p msg="ã‚³ãƒŸãƒƒãƒˆãƒ¡ãƒƒã‚»ãƒ¼ã‚¸ã‚’å…¥åŠ›ã—ã¦ãã ã•ã„ï¼ˆEnterã§ã€ŒUpdateã€ï¼‰: "
 
-:: “ü—Í‚ª‚È‚¯‚ê‚ÎuUpdatev‚Æ‚¢‚¤–¼‘O‚É‚·‚é
+:: å…¥åŠ›ãŒãªã‘ã‚Œã°ã€ŒUpdateã€ã¨ã„ã†åå‰ã«ã™ã‚‹
 if "%msg%"=="" set msg=Update
 
-:: 3. ƒRƒ~ƒbƒgŽÀs
+:: 3. ã‚³ãƒŸãƒƒãƒˆå®Ÿè¡Œ
 git commit -m "%msg%"
 
-:: 4. ƒvƒbƒVƒ…ŽÀs
+:: 4. ãƒ—ãƒƒã‚·ãƒ¥å®Ÿè¡Œ
 git push
 
 echo ==========================================
-echo  Š®—¹‚µ‚Ü‚µ‚½I
+echo  å®Œäº†ã—ã¾ã—ãŸï¼
 echo ==========================================
-pausef
+pause
