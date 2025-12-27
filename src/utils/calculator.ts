@@ -1,5 +1,5 @@
 import { MonthlyStats, SalesRecord, Shift } from '@/types';
-import { getBillingPeriod, formatDate, getBusinessDate } from '@/utils';
+import { getBillingPeriod, formatDate, getBusinessDate } from './date';
 
 export const calculatePeriodStats = (
   monthlyStats: MonthlyStats,
