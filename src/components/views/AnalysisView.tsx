@@ -19,7 +19,8 @@ import {
   ArrowUpRight
 } from 'lucide-react';
 import { collection, onSnapshot } from 'firebase/firestore';
-import { db, auth } from '@/services/firebase';
+import { db } from '@/services/firebase';
+import { useAuth } from '@/hooks/useAuth';
 import { SalesRecord, MonthlyStats, PaymentMethod } from '@/types';
 import { 
   getBillingPeriod, 
@@ -30,7 +31,7 @@ import {
   formatDate,
   RIDE_LABELS,
   getGoogleMapsUrl 
-} from '../utils';
+} from '@/utils';
 
 // ★管理者設定
 const ADMIN_EMAILS = [
@@ -50,6 +51,7 @@ interface RankingEntry extends SalesRecord {
 }
 
 const AnalysisView: React.FC<AnalysisViewProps> = ({ history, stats, onNavigateToHistory }) => {
+  const { user } = useAuth();
   // --- State ---
   const [rankingTab, setRankingTab] = useState<'allTime' | 'monthly'>('allTime');
   const [targetDate, setTargetDate] = useState(new Date()); // 分析対象月
@@ -57,7 +59,7 @@ const AnalysisView: React.FC<AnalysisViewProps> = ({ history, stats, onNavigateT
 
   const businessStartHour = stats.businessStartHour ?? 9;
   const shimebiDay = stats.shimebiDay ?? 20;
-  const currentUserId = auth.currentUser?.uid;
+  const currentUserId = user?.uid;
 
   // --- Data Fetching ---
   useEffect(() => {

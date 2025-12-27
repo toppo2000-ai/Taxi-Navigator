@@ -1,17 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { collection, onSnapshot, query, doc, getDoc } from 'firebase/firestore';
-import { db, auth } from '@/services/firebase';
+import { db } from '@/services/firebase';
+import { useAuth } from '@/hooks/useAuth';
 import { RefreshCw, Database, Globe, User, AlertCircle, CheckCircle2 } from 'lucide-react';
 
 const DebugView: React.FC = () => {
+  const { user: currentUser } = useAuth();
   const [activeTab, setActiveTab] = useState<'public' | 'personal'>('personal');
-  const [publicData, setPublicData] = useState<any[]>([]);
-  const [personalData, setPersonalData] = useState<any>(null);
-  const [myPublicData, setMyPublicData] = useState<any>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const currentUser = auth.currentUser;
 
   // 公開データの監視
   useEffect(() => {

@@ -50,7 +50,7 @@ import { Shield } from 'lucide-react';
 
 export default function App() {
   // --- Hooks ---
-  const { user, isAuthChecking, userProfile } = useAuth();
+  const { user, isAuthChecking, userProfile, loginAsGuest } = useAuth();
   const [viewingUid, setViewingUid] = useState<string | null>(null);
   const targetUid = viewingUid || user?.uid;
 
@@ -211,7 +211,7 @@ export default function App() {
   };
 
   const handleGuestLogin = () => {
-    setUser({ uid: 'guest-user', email: 'guest@example.com', displayName: 'Guest User' } as User);
+    loginAsGuest();
     setMonthlyStats(prev => ({ ...prev, userName: 'ゲストユーザー' }));
   };
 

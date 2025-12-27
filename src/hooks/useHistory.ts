@@ -14,6 +14,16 @@ export const useHistory = (targetUid: string | undefined) => {
       return;
     }
 
+    if (targetUid === 'guest-user') {
+      const guestData = localStorage.getItem('taxi_navigator_guest_data');
+      if (guestData) {
+        const data = JSON.parse(guestData);
+        setHistory(data.history || []);
+        setDayMetadata(data.dayMetadata || {});
+      }
+      return;
+    }
+
     const historyQuery = query(
       collection(db, 'users', targetUid, 'history'),
       orderBy('timestamp', 'desc'),

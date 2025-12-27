@@ -25,6 +25,17 @@ export const useStats = (targetUid: string | undefined) => {
   useEffect(() => {
     if (!targetUid) return;
 
+    if (targetUid === 'guest-user') {
+      const guestData = localStorage.getItem('taxi_navigator_guest_data');
+      if (guestData) {
+        const data = JSON.parse(guestData);
+        if (data.stats) {
+          setMonthlyStats(prev => ({ ...prev, ...data.stats }));
+        }
+      }
+      return;
+    }
+
     const unsubStats = onSnapshot(doc(db, 'users', targetUid, 'settings', 'monthly_stats'), (docSnap) => {
       if (docSnap.exists()) {
         setMonthlyStats(prev => ({ ...prev, ...docSnap.data() }));

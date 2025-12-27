@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { X, MapPinned, Lock } from 'lucide-react';
 import { collection, onSnapshot, query } from 'firebase/firestore';
-import { db, auth } from '@/services/firebase';
+import { db } from '@/services/firebase';
+import { useAuth } from '@/hooks/useAuth';
 import { SalesRecord } from '@/types';
 import { 
   formatCurrency, 
@@ -189,12 +190,13 @@ const ColleagueDetailModal: React.FC<{
 // --- Colleague Status List Component ---
 
 export const ColleagueStatusList: React.FC<{ followingUsers: string[] }> = ({ followingUsers }) => {
+  const { user } = useAuth();
   const [colleagues, setColleagues] = useState<ColleagueData[]>([]);
   const [selectedColleague, setSelectedColleague] = useState<ColleagueData | null>(null);
 
   const SHARED_SWITCH_HOUR = 12;
-  const currentUserId = auth.currentUser?.uid;
-  const currentUserEmail = auth.currentUser?.email || "";
+  const currentUserId = user?.uid;
+  const currentUserEmail = user?.email || "";
   const isAdmin = ADMIN_EMAILS.includes(currentUserEmail);
 
   useEffect(() => {

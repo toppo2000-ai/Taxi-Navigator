@@ -1,8 +1,9 @@
 import React from 'react';
 import { LogOut, ShieldAlert, MessageCircle, User } from 'lucide-react';
-import { auth } from '@/services/firebase';
+import { useAuth } from '@/hooks/useAuth';
 
 export default function UnauthorizedView() {
+  const { logout } = useAuth();
   return (
     <div className="min-h-screen bg-[#0A0E14] text-gray-100 flex flex-col items-center justify-center p-4">
       <div className="bg-[#1A222C] max-w-md w-full p-8 rounded-2xl shadow-2xl text-center border border-gray-800 relative overflow-hidden">
@@ -73,7 +74,7 @@ export default function UnauthorizedView() {
         </div>
 
         <button
-          onClick={() => auth.signOut()}
+          onClick={() => logout()}
           className="flex items-center justify-center gap-2 w-full py-3 px-4 bg-gray-800 hover:bg-gray-700 rounded-xl transition-colors font-medium text-gray-400 border border-gray-700 hover:text-white text-sm"
         >
           <LogOut className="w-4 h-4" />

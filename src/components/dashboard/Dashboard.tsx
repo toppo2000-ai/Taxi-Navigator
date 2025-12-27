@@ -19,7 +19,7 @@ import {
   ShieldCheck,
   Users
 } from 'lucide-react';
-import { auth } from '@/services/firebase';
+import { useAuth } from '@/hooks/useAuth';
 import { Shift, MonthlyStats, SalesRecord, BreakState } from '@/types';
 import { 
   formatCurrency, 
@@ -62,22 +62,23 @@ interface DashboardProps {
   onShiftEdit: () => void;
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ 
-  shift, 
-  stats, 
+const Dashboard: React.FC<DashboardProps> = ({
+  shift,
+  stats,
   breakState,
-  onStart, 
-  onEnd, 
-  onAdd, 
-  onEdit, 
-  onUpdateGoal, 
+  onStart,
+  onEnd,
+  onAdd,
+  onEdit,
+  onUpdateGoal,
   onUpdateShiftGoal,
   onAddRestMinutes,
   onToggleBreak,
   setBreakState,
   onShiftEdit
 }) => {
-  const [goalIn, setGoalIn] = useState(stats.defaultDailyGoal.toLocaleString()); 
+  const { user } = useAuth();
+  const [goalIn, setGoalIn] = useState(stats.defaultDailyGoal.toLocaleString());
   const [plannedHours, setPlannedHours] = useState(12);
   const [isGoalEditOpen, setIsGoalEditOpen] = useState(false);
   const [isShiftGoalEditOpen, setIsShiftGoalEditOpen] = useState(false);
@@ -89,6 +90,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   const [isClockOpen, setIsClockOpen] = useState(false);
   const [breakDurationMs, setBreakDurationMs] = useState(0);
   const breakIntervalRef = useRef<number | null>(null);
+
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -106,7 +108,7 @@ const Dashboard: React.FC<DashboardProps> = ({
       setBreakDurationMs(Date.now() - breakState.startTime);
       breakIntervalRef.current = window.setInterval(() => {
         if (breakState.startTime) {
-            setBreakDurationMs(Date.now() - breakState.startTime);
+          setBreakDurationMs(Date.now() - breakState.startTime);
         }
       }, 1000);
     } else {
@@ -131,7 +133,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   const handleStopBreakAndRide = () => {
     const minutes = Math.floor(breakDurationMs / 60000);
     setBreakState({ isActive: false, startTime: null });
-    onAdd(\`待機時間: \${minutes}分\`);
+    onAdd(`待機時間: ${minutes}分`);
   };
 
   const formatDuration = (ms: number) => {
@@ -139,11 +141,11 @@ const Dashboard: React.FC<DashboardProps> = ({
     const h = Math.floor(totalSeconds / 3600);
     const m = Math.floor((totalSeconds % 3600) / 60);
     const s = totalSeconds % 60;
-    return \`\${String(h).padStart(2, '0')}:\${String(m).padStart(2, '0')}:\${String(s).padStart(2, '0')}\`;
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   };
 
   const shiftRecords = useMemo(() => shift?.records || [], [shift]);
-  const dailyTotal = useMemo(() => shiftRecords.reduce((s, r) => s + r.amount, 0), [shiftRecords]);
+  const dailyTotal = useMemo(() => shiftRecords.reduce((s: number, r: SalesRecord) => s + r.amount, 0), [shiftRecords]);
   const dailyNet = useMemo(() => calculateNetTotal(dailyTotal), [dailyTotal]);
   const currentShiftBreakdown = useMemo(() => getPaymentBreakdown(shiftRecords), [shiftRecords]);
   const currentShiftCounts = useMemo(() => getPaymentCounts(shiftRecords), [shiftRecords]);
@@ -158,7 +160,7 @@ const Dashboard: React.FC<DashboardProps> = ({
     const diff = now - shift.startTime;
     const hours = Math.floor(diff / (1000 * 60 * 60));
     const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-    return \`\${hours}時間\${String(minutes).padStart(2, '0')}分\`;
+    return `${hours}時間${String(minutes).padStart(2, '0')}分`;
   }, [shift, now]);
 
   const hourlySales = useMemo(() => {
@@ -186,7 +188,7 @@ const Dashboard: React.FC<DashboardProps> = ({
 
   const remainingDutyDays = useMemo(() => {
     if (!stats.dutyDays) return 0;
-    return stats.dutyDays.filter(dStr => dStr >= todayBusinessDate && dStr <= formatDate(billingPeriod.end)).length;
+    return stats.dutyDays.filter((dStr: string) => dStr >= todayBusinessDate && dStr <= formatDate(billingPeriod.end)).length;
   }, [stats.dutyDays, todayBusinessDate, billingPeriod.end]);
 
   const requiredPerDay = useMemo(() => {
@@ -202,7 +204,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   const hoursOptions = Array.from({ length: 21 }, (_, i) => i + 4);
 
   const PrivacyBadge = () => {
-    const currentUserEmail = auth.currentUser?.email || "";
+    const currentUserEmail = user?.email || "";
     const isAdmin = ADMIN_EMAILS.includes(currentUserEmail);
 
     if (isAdmin) {
@@ -322,7 +324,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             <h3 className="text-xl font-black text-white">月間目標を変更</h3>
             <div className="bg-gray-950 p-5 rounded-2xl border-2 border-gray-700 flex items-center shadow-inner">
               <span className="text-blue-400 font-black mr-2 text-3xl">¥</span>
-              <input type="text" inputMode="numeric" value={newMonthlyGoal} onChange={(e) => setNewMonthlyGoal(toCommaSeparated(e.target.value))} className="bg-transparent text-white text-[clamp(2.2rem,10vw,3.5rem)] font-black w-full outline-none" autoFocus />
+              <input type="text" inputMode="numeric" value={newMonthlyGoal} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewMonthlyGoal(toCommaSeparated(e.target.value))} className="bg-transparent text-white text-[clamp(2.2rem,10vw,3.5rem)] font-black w-full outline-none" autoFocus />
             </div>
             <button onClick={() => { onUpdateGoal(fromCommaSeparated(newMonthlyGoal)); setIsGoalEditOpen(false); }} className="w-full bg-blue-600 py-4 rounded-2xl font-black text-xl text-white shadow-xl active:scale-95 transition-transform">保存</button>
           </div>
@@ -335,7 +337,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             <h3 className="text-xl font-black text-white">本日の目標を変更</h3>
             <div className="bg-gray-950 p-5 rounded-2xl border-2 border-gray-700 flex items-center shadow-inner">
               <span className="text-amber-500 font-black mr-2 text-3xl">¥</span>
-              <input type="text" inputMode="numeric" value={newShiftGoal} onChange={(e) => setNewShiftGoal(toCommaSeparated(e.target.value))} className="bg-transparent text-white text-[clamp(2.2rem,10vw,3.5rem)] font-black w-full outline-none" autoFocus />
+              <input type="text" inputMode="numeric" value={newShiftGoal} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewShiftGoal(toCommaSeparated(e.target.value))} className="bg-transparent text-white text-[clamp(2.2rem,10vw,3.5rem)] font-black w-full outline-none" autoFocus />
             </div>
             <button onClick={() => { onUpdateShiftGoal(fromCommaSeparated(newShiftGoal)); setIsShiftGoalEditOpen(false); }} className="w-full bg-amber-500 text-black py-4 rounded-2xl font-black text-xl shadow-xl active:scale-95 transition-transform">保存</button>
           </div>
@@ -351,7 +353,7 @@ const Dashboard: React.FC<DashboardProps> = ({
           </div>
           <div className="flex items-center bg-gray-950 rounded-2xl p-5 border-2 border-gray-700 focus-within:border-amber-500 transition-all shadow-inner">
             <span className="text-amber-500 font-black text-4xl mr-2">¥</span>
-            <input type="text" inputMode="numeric" value={goalIn} onChange={(e) => setGoalIn(toCommaSeparated(e.target.value))} className="bg-transparent text-white text-[clamp(2.8rem,12vw,4.5rem)] font-black w-full outline-none text-center" />
+            <input type="text" inputMode="numeric" value={goalIn} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setGoalIn(toCommaSeparated(e.target.value))} className="bg-transparent text-white text-[clamp(2.8rem,12vw,4.5rem)] font-black w-full outline-none text-center" />
           </div>
           
           <div className="space-y-4">
@@ -361,9 +363,9 @@ const Dashboard: React.FC<DashboardProps> = ({
                 <button
                   key={h}
                   onClick={() => setPlannedHours(h)}
-                  className={\`py-3 rounded-xl font-black text-xl border-2 transition-all \${
+                  className={`py-3 rounded-xl font-black text-xl border-2 transition-all ${
                     plannedHours === h ? 'bg-amber-500 border-amber-400 text-black' : 'bg-gray-800 border-gray-700 text-gray-500'
-                  }\`}
+                  }`}
                 >
                   {h}h
                 </button>
@@ -373,7 +375,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             <div className="relative">
               <select 
                 value={plannedHours} 
-                onChange={(e) => setPlannedHours(parseInt(e.target.value))}
+                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setPlannedHours(parseInt(e.target.value))}
                 className="w-full bg-gray-900 border border-gray-700 rounded-2xl p-4 text-white text-lg font-black appearance-none focus:border-amber-500 outline-none"
               >
                 {hoursOptions.map(h => (
@@ -431,9 +433,9 @@ const Dashboard: React.FC<DashboardProps> = ({
 
                 <span className="flex items-center gap-2 overflow-hidden min-w-0">
                     <span className="text-[10px] bg-gray-800 px-2 py-1 rounded text-gray-400 font-black uppercase tracking-tighter whitespace-nowrap flex-shrink-0">基準値</span> 
-                    <span className={\`truncate font-black \${referenceValue >= 0 ? 'text-green-500' : 'text-red-500'}\`}>
-                      {referenceValue >= 0 ? '+' : ''}{Math.round(referenceValue).toLocaleString()}
-                    </span>
+                    <span className={`truncate font-black ${referenceValue >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                          {referenceValue >= 0 ? '+' : ''}{Math.round(referenceValue).toLocaleString()}
+                        </span>
                 </span>
               </div>
             </div>
@@ -465,7 +467,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                 <CalendarDays className="w-6 h-6 text-red-500 mb-2" />
                 <p className="text-[10px] font-bold text-gray-600 uppercase mb-1 tracking-widest whitespace-nowrap">月間必要 / 日</p>
                 <p className="text-[clamp(1.4rem,6vw,2rem)] font-black text-white leading-none truncate w-full text-center">
-                  {requiredPerDay > 0 ? \`¥\${Math.round(requiredPerDay).toLocaleString()}\` : '---'}
+                  {requiredPerDay > 0 ? `¥${Math.round(requiredPerDay).toLocaleString()}` : '---'}
                 </p>
               </div>
               <div 
@@ -533,7 +535,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                 <div className="flex gap-2">
                   <button 
                     onClick={() => setIsDetailed(!isDetailed)} 
-                    className={\`text-[10px] px-3 py-1.5 rounded-full flex items-center gap-1.5 font-black active:scale-95 shadow-sm border transition-all whitespace-nowrap \${isDetailed ? 'bg-amber-500 text-black border-amber-400' : 'bg-gray-800 text-gray-400 border-gray-700'}\`}
+                    className={`text-[10px] px-3 py-1.5 rounded-full flex items-center gap-1.5 font-black active:scale-95 shadow-sm border transition-all whitespace-nowrap ${isDetailed ? 'bg-amber-500 text-black border-amber-400' : 'bg-gray-800 text-gray-400 border-gray-700'}`}
                   >
                     <LayoutList className="w-3.5 h-3.5" /> 詳細
                   </button>
@@ -548,7 +550,7 @@ const Dashboard: React.FC<DashboardProps> = ({
               {sortedRecords.length === 0 ? (
                 <div className="bg-[#1A222C] p-8 rounded-[28px] border border-gray-800 text-center text-gray-600 font-black uppercase tracking-widest text-sm">記録がありません</div>
               ) : (
-                sortedRecords.map((r, idx) => {
+                sortedRecords.map((r: SalesRecord, idx: number) => {
                   const displayIdx = isHistoryReversed ? shiftRecords.length - idx : idx + 1;
                   return (
                     <SalesRecordCard 

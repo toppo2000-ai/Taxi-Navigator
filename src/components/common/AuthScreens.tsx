@@ -75,12 +75,14 @@ export const LoginScreen: React.FC<{ onGuestLogin: () => void }> = ({ onGuestLog
             </div>
           </button>
 
-          <button 
-            onClick={onGuestLogin}
-            className="w-full bg-gray-800/50 border border-gray-700 text-gray-300 px-8 py-3 rounded-2xl font-bold text-sm hover:bg-gray-800 transition-all active:scale-95"
-          >
-            ゲストモードで試す (オフライン)
-          </button>
+          {import.meta.env.DEV && (
+            <button 
+              onClick={onGuestLogin}
+              className="w-full bg-gray-800/50 border border-gray-700 text-gray-300 px-8 py-3 rounded-2xl font-bold text-sm hover:bg-gray-800 transition-all active:scale-95"
+            >
+              ゲストモードで試す (開発用)
+            </button>
+          )}
         </div>
         
         <p className="text-[10px] text-gray-600 font-bold">

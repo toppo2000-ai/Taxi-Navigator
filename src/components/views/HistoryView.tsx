@@ -16,7 +16,8 @@ import {
   Wallet
 } from 'lucide-react';
 import { collection, onSnapshot, query, doc, orderBy, limit } from 'firebase/firestore'; 
-import { db, auth } from '@/services/firebase'; 
+import { db } from '@/services/firebase'; 
+import { useAuth } from '@/hooks/useAuth';
 import { SalesRecord, PaymentMethod, DayMetadata, MonthlyStats } from '@/types';
 import { 
   formatBusinessTime,
@@ -436,7 +437,8 @@ const HistoryView: React.FC<HistoryViewProps> = ({
   initialTargetDate,
   onClearTargetDate
 }) => {
-  const [viewingUid, setViewingUid] = useState(auth.currentUser?.uid);
+  const { user } = useAuth();
+  const [viewingUid, setViewingUid] = useState(user?.uid);
   const [isViewingMe, setIsViewingMe] = useState(true);
 
   const [colleagues, setColleagues] = useState<any[]>([]);
@@ -465,7 +467,7 @@ const HistoryView: React.FC<HistoryViewProps> = ({
   }, []);
 
   useEffect(() => {
-      const currentUid = auth.currentUser?.uid;
+      const currentUid = user?.uid;
       if (viewingUid === currentUid) {
           setIsViewingMe(true);
           setSelectedUserObj(null);
@@ -515,8 +517,8 @@ const HistoryView: React.FC<HistoryViewProps> = ({
   }, [initialTargetDate, shimebiDay, businessStartHour]);
 
   const selectableUsers = useMemo(() => {
-    const currentUid = auth.currentUser?.uid;
-    const currentUserEmail = auth.currentUser?.email;
+    const currentUid = user?.uid;
+    const currentUserEmail = user?.email;
     const isAdmin = currentUserEmail && ADMIN_EMAILS.includes(currentUserEmail);
 
     return colleagues.filter(u => {
@@ -610,7 +612,7 @@ const HistoryView: React.FC<HistoryViewProps> = ({
                     >
                         {selectableUsers.map(u => (
                             <option key={u.uid} value={u.uid}>
-                                {u.uid === auth.currentUser?.uid ? `自分 (${stats.userName})` : u.name || '名称未設定'}
+                                {u.uid === user?.uid ? `自分 (${stats.userName})` : u.name || '名称未設定'}
                             </option>
                         ))}
                     </select>

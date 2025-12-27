@@ -39,6 +39,16 @@ export const useShift = (user: User | null, targetUid: string | undefined, stats
       return;
     }
 
+    if (targetUid === 'guest-user') {
+      const guestData = localStorage.getItem('taxi_navigator_guest_data');
+      if (guestData) {
+        const data = JSON.parse(guestData);
+        setShift(sanitizeShift(data.shift));
+        setBreakState(data.breakState || { isActive: false, startTime: null });
+      }
+      return;
+    }
+
     const unsubShift = onSnapshot(doc(db, 'users', targetUid, 'current_data', 'current_shift'), (docSnap) => {
       if (docSnap.exists()) {
         setShift(sanitizeShift(docSnap.data()));

@@ -1,7 +1,6 @@
 import React from 'react';
 import { Settings, Shield } from 'lucide-react';
-import naviChibiImage from '@/assets/navi-chibi.png';
-
+import naviChibiImage from '@/assets/navi-chibi.png'
 interface HeaderProps {
   isAdmin: boolean;
   onViewSettings: () => void;
@@ -30,6 +29,11 @@ export const Header: React.FC<HeaderProps> = ({ isAdmin, onViewSettings, onViewA
           </div>
           <div className="h-[2px] w-full bg-gradient-to-r from-amber-500 to-transparent rounded-full opacity-50"></div>
         </div>
+        {import.meta.env.DEV && (
+          <div className="ml-2 px-1.5 py-0.5 bg-red-500/20 border border-red-500/50 rounded text-[8px] font-black text-red-500 uppercase tracking-tighter animate-pulse">
+            Dev Mode
+          </div>
+        )}
       </div>
 
       <div className="flex items-center gap-3">

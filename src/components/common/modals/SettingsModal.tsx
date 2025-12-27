@@ -3,6 +3,7 @@ import {
   X, 
   ChevronLeft, 
   ChevronRight, 
+  ChevronDown,
   Settings, 
   User, 
   Globe, 
@@ -19,8 +20,8 @@ import {
   PlusCircle
 } from 'lucide-react';
 import { collection, getDocs, query, orderBy } from 'firebase/firestore';
-import { signOut } from 'firebase/auth';
 import { auth, db } from '@/services/firebase';
+import { useAuth } from '@/hooks/useAuth';
 import { 
   MonthlyStats, 
   PaymentMethod, 
@@ -58,8 +59,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onImportRecords, 
   onClose, 
   onImpersonate 
-}) => {
-  const [activeTab, setActiveTab] = useState<'basic' | 'display' | 'admin'>('basic');
+}) => {  const { logout } = useAuth();  const [activeTab, setActiveTab] = useState<'basic' | 'display' | 'admin'>('basic');
   
   const [shimebi, setShimebi] = useState(stats.shimebiDay.toString());
   const [businessStartHour, setBusinessStartHour] = useState(stats.businessStartHour ?? 9);
@@ -548,7 +548,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
            <button 
              onClick={() => {
                if (window.confirm('ログアウトしますか？')) {
-                 signOut(auth);
+                 logout();
                }
              }} 
              className="w-full bg-red-900/20 text-red-500 font-bold py-3 rounded-xl border border-red-900/50 hover:bg-red-900/30 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
