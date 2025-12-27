@@ -2,13 +2,13 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { X, MapPinned, Lock } from 'lucide-react';
 import { collection, onSnapshot, query } from 'firebase/firestore';
-import { db, auth } from '../firebase';
-import { SalesRecord } from '../types';
+import { db, auth } from '@/services/firebase';
+import { SalesRecord } from '@/types';
 import { 
   formatCurrency, 
   getBusinessDate 
-} from '../utils';
-import { SalesRecordCard } from './HistoryView';
+} from '@/utils';
+import { SalesRecordCard } from '@/components/common/SalesRecordCard';
 
 // --- Types & Interfaces ---
 

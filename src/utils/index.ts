@@ -1,4 +1,4 @@
-import { PaymentMethod, RideType, SalesRecord } from './types.ts';
+import { PaymentMethod, RideType, SalesRecord } from '@/types';
 
 // --- Labels & Dictionaries ---
 
@@ -152,6 +152,14 @@ export const formatDate = (date: Date) => {
   return date.toLocaleDateString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '/');
 };
 
+export const getPaymentCounts = (records: SalesRecord[]) => {
+  const counts: Record<string, number> = {};
+  records.forEach(r => {
+    counts[r.paymentMethod] = (counts[r.paymentMethod] || 0) + 1;
+  });
+  return counts;
+};
+
 /**
  * Aggregates sales records by payment method.
  * Handles split payments where 'nonCashAmount' is specified.
@@ -302,4 +310,33 @@ export const getGoogleMapsUrl = (coords?: string) => {
   // 座標から不要なスペース等を除去してURLエンコード
   const cleanCoords = coords.trim();
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(cleanCoords)}`;
+};
+
+/**
+ * generateDefaultDutyDays
+ * 締め日に基づいて初期の出番日を生成するロジック
+ */
+export const generateDefaultDutyDays = (
+  shimebiDay: number = 20, 
+  startHour: number = 9
+) => {
+  const now = new Date();
+  const { start, end } = getBillingPeriod(now, shimebiDay, startHour);
+  const candidates: string[] = [];
+  const current = new Date(start);
+  
+  while (current <= end) {
+    const dayOfWeek = current.getDay();
+    if (dayOfWeek !== 0 && dayOfWeek !== 3) {
+      candidates.push(formatDate(new Date(current)));
+    }
+    current.setDate(current.getDate() + 1);
+  }
+  
+  for (let i = candidates.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+  }
+  
+  return candidates.slice(0, 20).sort();
 };

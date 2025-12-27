@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { collection, onSnapshot, query, doc, getDoc } from 'firebase/firestore';
-import { db, auth } from '../firebase';
+import { db, auth } from '@/services/firebase';
 import { RefreshCw, Database, Globe, User, AlertCircle, CheckCircle2 } from 'lucide-react';
 
 const DebugView: React.FC = () => {

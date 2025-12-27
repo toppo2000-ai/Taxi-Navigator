@@ -13,22 +13,14 @@ import {
   Play, 
   Coffee, 
   StopCircle, 
-  Plus, 
-  Clock, 
   ChevronDown, 
-  Users, 
-  X, 
-  ChevronRight, 
-  ArrowLeft, 
-  LogOut, 
-  Car, 
   Globe, 
   Lock, 
-  ShieldCheck 
+  ShieldCheck,
+  Users
 } from 'lucide-react';
-import { collection, onSnapshot, query, where, orderBy, limit, doc } from 'firebase/firestore';
-import { db, auth } from '../firebase';
-import { Shift, MonthlyStats, SalesRecord, BreakState } from '../types';
+import { auth } from '@/services/firebase';
+import { Shift, MonthlyStats, SalesRecord, BreakState } from '@/types';
 import { 
   formatCurrency, 
   formatTime, 
@@ -38,311 +30,21 @@ import {
   calculateNetTotal, 
   getBusinessDate, 
   getBillingPeriod, 
-  getPaymentBreakdown, 
-  PAYMENT_LABELS, 
-  calculateTaxAmount, 
-  getGoogleMapsUrl 
-} from '../utils';
-import { SalesRecordCard, PaymentBreakdownList, getPaymentCounts } from './HistoryView';
-import { ModalWrapper } from './Modals';
-import { FullScreenClock } from './FullScreenClock';
+  getPaymentBreakdown,
+  getPaymentCounts
+} from '@/utils';
+import { SalesRecordCard } from '@/components/common/SalesRecordCard';
+import { PaymentBreakdownList } from '@/components/common/PaymentBreakdownList';
+import { ModalWrapper } from '@/components/common/Modals';
+import { FullScreenClock } from '@/components/common/FullScreenClock';
+import { NeonProgressBar } from '@/components/common/NeonProgressBar';
+import { ColleagueStatusList } from '@/components/dashboard/ColleagueStatusList';
 
-// ★管理者設定: ここにご自身のGoogleメールアドレスを入力してください
+// ★管理者設定
 const ADMIN_EMAILS = [
   "toppo2000@gmail.com", 
   "admin-user@gmail.com"
 ];
-
-// --- Local Helper Components ---
-
-export const NeonProgressBar: React.FC<{ progress: number, color: 'amber' | 'blue' }> = ({ progress, color }) => {
-  const isAmber = color === 'amber';
-  const barColorClass = isAmber ? 'bg-amber-500 shadow-[0_0_15px_#F59E0B]' : 'bg-blue-500 shadow-[0_0_15px_#3B82F6]';
-  const borderColorClass = isAmber ? 'border-amber-400/40' : 'border-blue-400/40';
-  
-  return (
-    <div className={`w-full bg-[#05080C] border-2 ${borderColorClass} rounded-full h-8 p-1 overflow-hidden shadow-[inset_0_2px_10px_rgba(0,0,0,0.8)]`}>
-      <div 
-        className={`h-full transition-all duration-1000 ease-out rounded-full ${barColorClass}`} 
-        style={{ width: `${Math.min(100, progress)}%` }} 
-      />
-    </div>
-  );
-};
-
-// --- Colleague Data Interface ---
-
-interface MonthData {
-    label: string;
-    sortKey: string;
-    sales: number;
-    records: SalesRecord[];
-    startStr: string;
-    endStr: string;
-}
-
-interface ColleagueData {
-  uid: string;
-  name: string;
-  startTime: number;
-  plannedEndTime: number;
-  sales: number;
-  rideCount: number;
-  dispatchCount?: number;
-  status: 'active' | 'break' | 'offline' | 'completed' | 'riding'; 
-  records?: SalesRecord[]; 
-  months?: Record<string, MonthData>; 
-  currentMonthKey?: string; 
-  lastUpdated: number;
-  businessStartHour?: number;
-  visibilityMode?: 'PUBLIC' | 'PRIVATE' | 'CUSTOM';
-  allowedViewers?: string[];
-}
-
-// --- Colleague Detail Modal (Level 3) ---
-
-const ColleagueDetailModal: React.FC<{ 
-    user: ColleagueData, 
-    date: string, 
-    onClose: () => void 
-}> = ({ user, date, onClose }) => {
-    
-    // ★修正: Stateでデータを管理し、useEffectでデータを取得する形に変更
-    const [realtimeData, setRealtimeData] = useState<{records: SalesRecord[], total: number} | null>(null);
-
-    useEffect(() => {
-        // public_status をリッスンして最新データを取得
-        const unsub = onSnapshot(doc(db, "public_status", user.uid), (docSnap) => {
-            if (docSnap.exists()) {
-                const data = docSnap.data();
-                
-                const activeRecords: SalesRecord[] = data.records || [];
-                let pastRecords: SalesRecord[] = [];
-                
-                if (data.months) {
-                     pastRecords = Object.values(data.months).flatMap((m: any) => m.records || []);
-                }
-
-                const now = Date.now();
-                const oneDayAgo = now - 24 * 60 * 60 * 1000;
-
-                // 結合・24時間以内フィルタ・重複排除・ソート
-                const allRecords = [...pastRecords, ...activeRecords]
-                    .filter((r: SalesRecord) => r.timestamp > oneDayAgo)
-                    .filter((r, index, self) => index === self.findIndex((t) => t.id === r.id))
-                    .sort((a: SalesRecord, b: SalesRecord) => b.timestamp - a.timestamp);
-
-                const total = allRecords.reduce((sum: number, r: SalesRecord) => sum + r.amount, 0);
-                
-                setRealtimeData({ records: allRecords, total });
-            } else {
-                setRealtimeData({ records: [], total: 0 });
-            }
-        });
-
-        return () => unsub();
-    }, [user.uid]);
-
-    if (!realtimeData) return null;
-
-    return createPortal(
-        <div className="fixed inset-0 z-[9999] flex flex-col justify-end bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
-            <div className="absolute inset-0" onClick={onClose} />
-            <div className="relative w-full max-w-md mx-auto bg-[#131C2B] rounded-t-[32px] p-6 text-white h-[85vh] flex flex-col shadow-2xl animate-in slide-in-from-bottom-10 duration-300 border-t border-gray-700">
-                <div className="flex justify-between items-center mb-6 flex-shrink-0">
-                    <div>
-                        <h2 className="text-xl font-black flex items-center gap-2">
-                            {user.name} <span className="text-xs font-normal text-gray-400 bg-gray-800 px-2 py-1 rounded-full">{date}</span>
-                        </h2>
-                    </div>
-                    <button onClick={onClose} className="p-2 bg-gray-800 rounded-full text-gray-400 hover:text-white active:scale-95 transition-transform">
-                        <X className="w-6 h-6" />
-                    </button>
-                </div>
-                
-                <div className="grid grid-cols-2 gap-4 mb-6 flex-shrink-0">
-                    <div className="bg-gray-900/50 p-4 rounded-2xl border border-gray-700 text-center">
-                        <p className="text-xs text-gray-500 font-bold uppercase tracking-widest mb-1">日計</p>
-                        <p className="text-2xl font-black text-amber-500">{formatCurrency(realtimeData.total)}</p>
-                    </div>
-                    <div className="bg-gray-900/50 p-4 rounded-2xl border border-gray-700 text-center">
-                        <p className="text-xs text-gray-500 font-bold uppercase tracking-widest mb-1">回数</p>
-                        <p className="text-2xl font-black text-white">{realtimeData.records.length} <span className="text-sm text-gray-500">回</span></p>
-                    </div>
-                </div>
-
-                <div className="flex-1 overflow-y-auto space-y-3 pb-safe pr-1 custom-scrollbar">
-                    {realtimeData.records.length === 0 ? (
-                        <div className="text-center text-gray-500 py-10 font-bold">記録がありません</div>
-                    ) : (
-                        realtimeData.records.map((r, idx) => (
-                            <div key={r.id} className="opacity-100">
-                                <SalesRecordCard 
-                                    record={r}
-                                    index={realtimeData.records.length - idx}
-                                    isDetailed={true}
-                                    customLabels={{}} 
-                                    businessStartHour={user.businessStartHour || 9}
-                                    onClick={() => {}} 
-                                />
-                            </div>
-                        ))
-                    )}
-                </div>
-            </div>
-        </div>,
-        document.body
-    );
-};
-
-// --- Colleague Status Component (Dashboard Top) ---
-
-const ColleagueStatusList: React.FC<{ followingUsers: string[] }> = ({ followingUsers }) => {
-  const [colleagues, setColleagues] = useState<ColleagueData[]>([]);
-  const [selectedColleague, setSelectedColleague] = useState<ColleagueData | null>(null);
-
-  const SHARED_SWITCH_HOUR = 12;
-  const currentUserId = auth.currentUser?.uid;
-  const currentUserEmail = auth.currentUser?.email || "";
-  const isAdmin = ADMIN_EMAILS.includes(currentUserEmail);
-
-  useEffect(() => {
-    const q = query(collection(db, "public_status"));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const users: ColleagueData[] = [];
-      snapshot.forEach((doc) => {
-        users.push(doc.data() as ColleagueData);
-      });
-      users.sort((a, b) => b.sales - a.sales);
-      setColleagues(users);
-    });
-    return () => unsubscribe();
-  }, []);
-
-  const formatBusinessTimeStr = (timestamp: number) => {
-    if (!timestamp) return '--:--';
-    const d = new Date(timestamp);
-    return d.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
-  };
-
-  const currentDisplayDate = getBusinessDate(Date.now(), SHARED_SWITCH_HOUR);
-
-  const renderStatusBadge = (user: ColleagueData, hasDataToday: boolean) => {
-      if (!hasDataToday) {
-          return <span className="text-gray-500 font-bold text-xs whitespace-nowrap">－</span>;
-      }
-
-      switch (user.status) {
-          case 'riding':
-              return <span className="text-red-400 font-black text-xs whitespace-nowrap">実車</span>;
-          case 'active':
-              return <span className="text-blue-400 font-black text-xs whitespace-nowrap">空車</span>;
-          case 'break':
-              return <span className="text-amber-500 font-black text-xs whitespace-nowrap">休憩</span>;
-          case 'completed':
-          case 'offline':
-              return (
-                <span className="text-white font-black tracking-tighter whitespace-nowrap text-xs">
-                  {formatBusinessTimeStr(user.plannedEndTime)}
-                </span>
-              );
-          default:
-              return <span className="text-blue-400 font-black text-xs whitespace-nowrap">空車</span>;
-      }
-  };
-
-  const filteredColleagues = colleagues.filter(u => {
-    if (u.uid === currentUserId) return true;
-    if (!followingUsers.includes(u.uid)) return false;
-    if (isAdmin) return true;
-    const mode = u.visibilityMode || 'PUBLIC'; 
-    if (mode === 'PUBLIC') return true;
-    if (mode === 'PRIVATE') return false;
-    if (mode === 'CUSTOM') {
-        return u.allowedViewers && u.allowedViewers.includes(currentUserId || '');
-    }
-    return true;
-  });
-
-  if (filteredColleagues.length === 0) return null;
-
-  return (
-    <>
-        <div className="rounded-2xl overflow-hidden mb-4 shadow-lg animate-in fade-in slide-in-from-bottom-4 font-sans border border-amber-500/20">
-          <div className="bg-gradient-to-r from-orange-900/60 via-amber-900/50 to-orange-900/60 px-3 py-2 text-center border-b border-amber-500/20 backdrop-blur-sm">
-             <div className="text-amber-100 font-bold text-sm tracking-wide">
-                他担当の稼働状況 ({currentDisplayDate})
-             </div>
-             <div className="text-amber-200/70 text-[10px] font-bold mt-0.5">
-                行タップで詳細を表示
-             </div>
-          </div>
-          <div className="overflow-x-auto bg-[#131C2B]">
-            <table className="w-full text-center border-collapse">
-              <thead>
-                <tr className="bg-slate-900/80 text-xs uppercase tracking-wider border-b border-gray-700/50">
-                  <th className="py-2 px-1 font-bold border-r border-gray-700/50 w-[20%] text-pink-300">担当</th>
-                  <th className="py-2 px-1 font-bold border-r border-gray-700/50 text-blue-300">出庫</th>
-                  <th className="py-2 px-1 font-bold border-r border-gray-700/50 text-green-300">状態</th>
-                  <th className="py-2 px-1 font-bold border-r border-gray-700/50 text-yellow-300">回数</th>
-                  <th className="py-2 px-1 font-bold border-r border-gray-700/50 text-orange-300">配車</th>
-                  <th className="py-2 px-2 font-bold text-cyan-300">営収</th>
-                </tr>
-              </thead>
-              <tbody className="text-sm text-gray-200">
-                {filteredColleagues.map((user, idx) => {
-                  const rowClass = idx % 2 === 0 
-                    ? 'bg-blue-500/05' 
-                    : 'bg-purple-500/05';
-                  
-                  const userBusinessDate = user.startTime ? getBusinessDate(user.startTime, SHARED_SWITCH_HOUR) : '';
-                  const hasDataToday = userBusinessDate === currentDisplayDate || (user.sales > 0 && user.lastUpdated > Date.now() - 12 * 3600000);
-
-                  return (
-                    <tr 
-                        key={user.uid} 
-                        className={`${rowClass} border-b border-gray-700/30 cursor-pointer hover:bg-white/5 active:bg-white/10 transition-colors`}
-                        onClick={() => setSelectedColleague(user)}
-                    >
-                      <td className="py-2 px-1 font-bold text-left truncate max-w-[80px] border-r border-gray-700/30 text-white">
-                        {user.name}
-                        {isAdmin && user.visibilityMode === 'PRIVATE' && <span className="text-[9px] text-red-400 block leading-none font-black scale-75 origin-left">[非公開]</span>}
-                      </td>
-                      <td className="py-2 px-1 font-black tracking-tighter border-r border-gray-700/30 text-xs text-white">
-                        {hasDataToday ? formatBusinessTimeStr(user.startTime) : '－'}
-                      </td>
-                      <td className="py-2 px-1 font-medium tracking-tighter border-r border-gray-700/30">
-                        {renderStatusBadge(user, hasDataToday)}
-                      </td>
-                      <td className="py-2 px-1 font-bold border-r border-gray-700/30 text-white">
-                        {hasDataToday ? user.rideCount : 0}
-                      </td>
-                      <td className="py-2 px-1 font-bold border-r border-gray-700/30 text-white">
-                        {hasDataToday ? (user.dispatchCount ?? '-') : 0}
-                      </td>
-                      <td className="py-2 px-2 text-right font-bold tracking-tight text-white">
-                        {(hasDataToday ? user.sales : 0).toLocaleString()}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-        
-        {selectedColleague && (
-            <ColleagueDetailModal 
-                user={selectedColleague} 
-                date={currentDisplayDate}
-                onClose={() => setSelectedColleague(null)} 
-            />
-        )}
-    </>
-  );
-};
-
-// --- Dashboard Component ---
 
 interface DashboardProps { 
   shift: Shift | null; 
@@ -384,10 +86,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   const [isHistoryReversed, setIsHistoryReversed] = useState(true);
   const [isDetailed, setIsDetailed] = useState(false);
   const [now, setNow] = useState(Date.now());
-  
-  // ★追加: 時計表示用ステート
   const [isClockOpen, setIsClockOpen] = useState(false);
-
   const [breakDurationMs, setBreakDurationMs] = useState(0);
   const breakIntervalRef = useRef<number | null>(null);
 
@@ -432,7 +131,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   const handleStopBreakAndRide = () => {
     const minutes = Math.floor(breakDurationMs / 60000);
     setBreakState({ isActive: false, startTime: null });
-    onAdd(`待機時間: ${minutes}分`);
+    onAdd(\`待機時間: \${minutes}分\`);
   };
 
   const formatDuration = (ms: number) => {
@@ -440,7 +139,7 @@ const Dashboard: React.FC<DashboardProps> = ({
     const h = Math.floor(totalSeconds / 3600);
     const m = Math.floor((totalSeconds % 3600) / 60);
     const s = totalSeconds % 60;
-    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    return \`\${String(h).padStart(2, '0')}:\${String(m).padStart(2, '0')}:\${String(s).padStart(2, '0')}\`;
   };
 
   const shiftRecords = useMemo(() => shift?.records || [], [shift]);
@@ -459,7 +158,7 @@ const Dashboard: React.FC<DashboardProps> = ({
     const diff = now - shift.startTime;
     const hours = Math.floor(diff / (1000 * 60 * 60));
     const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-    return `${hours}時間${String(minutes).padStart(2, '0')}分`;
+    return \`\${hours}時間\${String(minutes).padStart(2, '0')}分\`;
   }, [shift, now]);
 
   const hourlySales = useMemo(() => {
@@ -547,12 +246,10 @@ const Dashboard: React.FC<DashboardProps> = ({
   return (
     <div className="p-4 pb-32 space-y-5 w-full max-w-full overflow-hidden">
       
-      {/* ★追加: 全画面時計の表示制御 */}
       {isClockOpen && createPortal(<FullScreenClock onClose={() => setIsClockOpen(false)} />, document.body)}
 
       {shift && (
         <div className="flex justify-between items-end px-2 mb-2">
-          {/* ★修正: 時刻部分をタップ可能にし、全画面時計を起動する */}
           <div 
             className="flex flex-col cursor-pointer active:scale-95 transition-transform" 
             onClick={() => setIsClockOpen(true)}
@@ -664,9 +361,9 @@ const Dashboard: React.FC<DashboardProps> = ({
                 <button
                   key={h}
                   onClick={() => setPlannedHours(h)}
-                  className={`py-3 rounded-xl font-black text-xl border-2 transition-all ${
+                  className={\`py-3 rounded-xl font-black text-xl border-2 transition-all \${
                     plannedHours === h ? 'bg-amber-500 border-amber-400 text-black' : 'bg-gray-800 border-gray-700 text-gray-500'
-                  }`}
+                  }\`}
                 >
                   {h}h
                 </button>
@@ -734,7 +431,7 @@ const Dashboard: React.FC<DashboardProps> = ({
 
                 <span className="flex items-center gap-2 overflow-hidden min-w-0">
                     <span className="text-[10px] bg-gray-800 px-2 py-1 rounded text-gray-400 font-black uppercase tracking-tighter whitespace-nowrap flex-shrink-0">基準値</span> 
-                    <span className={`truncate font-black ${referenceValue >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                    <span className={\`truncate font-black \${referenceValue >= 0 ? 'text-green-500' : 'text-red-500'}\`}>
                       {referenceValue >= 0 ? '+' : ''}{Math.round(referenceValue).toLocaleString()}
                     </span>
                 </span>
@@ -768,7 +465,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                 <CalendarDays className="w-6 h-6 text-red-500 mb-2" />
                 <p className="text-[10px] font-bold text-gray-600 uppercase mb-1 tracking-widest whitespace-nowrap">月間必要 / 日</p>
                 <p className="text-[clamp(1.4rem,6vw,2rem)] font-black text-white leading-none truncate w-full text-center">
-                  {requiredPerDay > 0 ? `¥${Math.round(requiredPerDay).toLocaleString()}` : '---'}
+                  {requiredPerDay > 0 ? \`¥\${Math.round(requiredPerDay).toLocaleString()}\` : '---'}
                 </p>
               </div>
               <div 
@@ -828,7 +525,6 @@ const Dashboard: React.FC<DashboardProps> = ({
           </div>
 
           <div className="space-y-4 w-full">
-            {/* ★ ここに出庫中も他担当の稼働状況を表示 */}
             <ColleagueStatusList followingUsers={stats.followingUsers || []} />
 
             <div className="flex flex-col gap-3">
@@ -837,7 +533,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                 <div className="flex gap-2">
                   <button 
                     onClick={() => setIsDetailed(!isDetailed)} 
-                    className={`text-[10px] px-3 py-1.5 rounded-full flex items-center gap-1.5 font-black active:scale-95 shadow-sm border transition-all whitespace-nowrap ${isDetailed ? 'bg-amber-500 text-black border-amber-400' : 'bg-gray-800 text-gray-400 border-gray-700'}`}
+                    className={\`text-[10px] px-3 py-1.5 rounded-full flex items-center gap-1.5 font-black active:scale-95 shadow-sm border transition-all whitespace-nowrap \${isDetailed ? 'bg-amber-500 text-black border-amber-400' : 'bg-gray-800 text-gray-400 border-gray-700'}\`}
                   >
                     <LayoutList className="w-3.5 h-3.5" /> 詳細
                   </button>

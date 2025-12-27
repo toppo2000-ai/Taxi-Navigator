@@ -8,47 +8,31 @@ import {
   ChevronLeft,
   ChevronRight,
   TrendingUp,
-  Coffee,
-  Skull,
-  Timer,
-  Car,
-  Wallet,
-  Coins,
-  CreditCard,
   User as UserIcon,
-  Users,
-  LayoutList,
-  MapPin,
-  MapPinned,
   Calendar,
   Database,
   ChevronDown,
   ChevronUp,
-  Banknote,
-  Smartphone,
-  Ticket,
-  QrCode,
-  Navigation,
-  ShieldCheck,
-  Trophy,
-  Check
+  Wallet
 } from 'lucide-react';
 import { collection, onSnapshot, query, doc, orderBy, limit } from 'firebase/firestore'; 
-import { db, auth } from '../firebase'; 
-import { SalesRecord, PaymentMethod, DayMetadata, DEFAULT_PAYMENT_ORDER, MonthlyStats, RideType } from '../types';
+import { db, auth } from '@/services/firebase'; 
+import { SalesRecord, PaymentMethod, DayMetadata, MonthlyStats } from '@/types';
 import { 
   formatBusinessTime,
   formatCurrency, 
   calculateTaxAmount,
   PAYMENT_LABELS, 
-  RIDE_LABELS,
   getBusinessDate,
   getPaymentBreakdown,
-  getPaymentColorClass,
   getBillingPeriod,
   formatDate,
-  getGoogleMapsUrl
-} from '../utils';
+  getPaymentCounts
+} from '@/utils';
+
+import { PaymentBreakdownList } from '@/components/common/PaymentBreakdownList';
+import { SalesRecordCard } from '@/components/common/SalesRecordCard';
+import { ReportSummaryView } from '@/components/common/ReportSummaryView';
 
 // 管理者メールアドレス
 const ADMIN_EMAILS = [
@@ -56,320 +40,8 @@ const ADMIN_EMAILS = [
   "admin-user@gmail.com"
 ];
 
-// --- Helper Functions ---
-export const getPaymentCounts = (records: SalesRecord[]) => {
-  const counts: Record<string, number> = {};
-  records.forEach(r => {
-    counts[r.paymentMethod] = (counts[r.paymentMethod] || 0) + 1;
-  });
-  return counts;
-};
-
 // ヘルパー: 配車かどうか
 const isDispatch = (r: SalesRecord) => r.rideType !== 'FLOW' && r.rideType !== 'WAIT';
-
-// --- Shared Components ---
-
-const PaymentIcon: React.FC<{ method: PaymentMethod, className?: string }> = ({ method, className }) => {
-  switch (method) {
-    case 'CASH': return <Banknote className={className} />;
-    case 'CARD': return <CreditCard className={className} />;
-    case 'DIDI': return <Smartphone className={className} />;
-    case 'TICKET': return <Ticket className={className} />;
-    case 'QR': return <QrCode className={className} />;
-    default: return <CreditCard className={className} />;
-  }
-};
-
-// ★完全復元: カラフルで大きな支払い内訳リスト
-export const PaymentBreakdownList: React.FC<{
-  breakdown: Record<string, number>;
-  counts: Record<string, number>;
-  customLabels: Record<string, string>;
-  enabledMethods?: PaymentMethod[];
-}> = ({ breakdown, counts, customLabels, enabledMethods }) => {
-  const methodsToList = enabledMethods || DEFAULT_PAYMENT_ORDER;
-  
-  let nonCashAmountTotal = 0;
-  let nonCashCountTotal = 0;
-  Object.keys(breakdown).forEach(key => { if (key !== 'CASH') nonCashAmountTotal += breakdown[key]; });
-  Object.keys(counts).forEach(key => { if (key !== 'CASH') nonCashCountTotal += counts[key]; });
-
-  const safeCustomLabels = customLabels || {};
-
-  return (
-    <div className="space-y-4">
-       {/* キャッシュレス計を大きく表示 */}
-       {nonCashAmountTotal > 0 && (
-         <div className="bg-gradient-to-r from-indigo-900/60 to-blue-900/60 p-4 rounded-2xl border border-indigo-500/30 flex justify-between items-center shadow-lg">
-            <div className="flex items-center gap-3">
-               <div className="p-2 bg-indigo-500/20 rounded-full">
-                 <Coins className="w-6 h-6 text-indigo-300" />
-               </div>
-               <div>
-                 <span className="text-xs font-bold text-indigo-200 block uppercase tracking-widest">キャッシュレス計</span>
-                 <span className="text-sm font-medium text-indigo-400">{nonCashCountTotal}回</span>
-               </div>
-            </div>
-            <span className="text-3xl font-black text-white tracking-tight">
-               {formatCurrency(nonCashAmountTotal)}
-            </span>
-         </div>
-       )}
-
-       <h4 className="text-xs font-black text-gray-500 uppercase px-2 tracking-widest flex items-center gap-2 mt-6">
-         <CreditCard className="w-3 h-3" /> 決済別内訳
-       </h4>
-       
-       {/* カラフルなグリッド表示 */}
-       <div className="grid grid-cols-2 gap-3">
-         {methodsToList.map(method => {
-            const amt = breakdown[method] || 0;
-            const cnt = counts[method] || 0;
-            if (amt === 0 && cnt === 0) return null;
-            
-            const label = safeCustomLabels[method] || PAYMENT_LABELS[method];
-            
-            // 各支払い方法ごとの色クラスを取得してスタイルに適用
-            const colorClass = getPaymentColorClass(method);
-            let bgClass = "bg-gray-900/50 border-gray-800";
-            if (colorClass.includes("amber") || colorClass.includes("yellow")) bgClass = "bg-amber-900/20 border-amber-500/30";
-            else if (colorClass.includes("blue") || colorClass.includes("sky")) bgClass = "bg-blue-900/20 border-blue-500/30";
-            else if (colorClass.includes("green") || colorClass.includes("emerald")) bgClass = "bg-green-900/20 border-green-500/30";
-            else if (colorClass.includes("purple") || colorClass.includes("indigo")) bgClass = "bg-purple-900/20 border-purple-500/30";
-            else if (colorClass.includes("pink") || colorClass.includes("red")) bgClass = "bg-pink-900/20 border-pink-500/30";
-
-            return (
-               <div key={method} className={`${bgClass} p-3 rounded-xl border flex flex-col justify-between shadow-sm`}>
-                  <div className="flex justify-between items-start mb-2">
-                     <div className="flex items-center gap-2">
-                        <PaymentIcon method={method} className="w-4 h-4 opacity-70" />
-                        <span className="text-xs font-bold opacity-80 truncate max-w-[80px]">
-                            {label}
-                        </span>
-                     </div>
-                     <span className="text-xs font-medium opacity-60">
-                        {cnt}回
-                     </span>
-                  </div>
-                  <div className="text-right">
-                     <span className="text-xl font-black block tracking-tight">
-                        {formatCurrency(amt)}
-                     </span>
-                  </div>
-               </div>
-            )
-         })}
-       </div>
-    </div>
-  );
-};
-
-export const SalesRecordCard: React.FC<{ 
-  record: SalesRecord; 
-  index: number; 
-  isDetailed: boolean; 
-  customLabels: Record<string, string>;
-  businessStartHour: number;
-  onClick: () => void;
-}> = ({ record, index, isDetailed, customLabels, businessStartHour, onClick }) => {
-  const safeCustomLabels = customLabels || {};
-  const paymentName = safeCustomLabels[record.paymentMethod] || PAYMENT_LABELS[record.paymentMethod];
-  const totalAmount = record.amount + record.toll;
-  const passengerStr = `[${record.passengersMale || 0}${record.passengersFemale || 0}]`;
-
-  return (
-    <div onClick={onClick} className="bg-[#1A222C] p-5 rounded-[24px] border border-gray-800 active:scale-[0.98] transition-all shadow-md flex flex-col gap-3 w-full relative overflow-hidden group cursor-pointer">
-      {record.isBadCustomer && (
-        <div className="absolute top-0 right-0 p-2 opacity-10 pointer-events-none text-red-500/20">
-          <Skull className="w-16 h-16" />
-        </div>
-      )}
-      <div className="flex justify-between items-start">
-        <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-2">
-                <div className="w-9 h-9 bg-gray-900 rounded-xl flex items-center justify-center text-base font-black text-amber-500 border border-gray-700 shadow-inner">
-                    {index}
-                </div>
-                <span className="text-xl font-black text-gray-300 font-mono tracking-wide">
-                    {formatBusinessTime(record.timestamp, businessStartHour)}
-                </span>
-            </div>
-            <div className="ml-11">
-                <span className="text-slate-400 text-lg font-black tracking-widest font-mono">
-                    {passengerStr}
-                </span>
-            </div>
-        </div>
-        <div className="text-right">
-          <span className="text-[clamp(2.2rem,10vw,2.8rem)] font-black text-amber-500 leading-none block drop-shadow-md tracking-tighter">
-            {formatCurrency(totalAmount)}
-          </span>
-          {record.toll > 0 && (
-            <span className="text-xs font-bold text-blue-400 bg-blue-900/30 px-2 py-0.5 rounded border border-blue-500/30 inline-block mt-1">
-              (高速 {record.toll})
-            </span>
-          )}
-        </div>
-      </div>
-      <div className="flex flex-col gap-2 my-1 pl-1 border-l-2 border-gray-700 ml-2 py-1">
-        <div className="flex items-start gap-3">
-          <div className="mt-1.5 w-2.5 h-2.5 rounded-full bg-green-500 shadow-[0_0_8px_#22c55e] flex-shrink-0" />
-          <div className="flex-1 flex items-center justify-between min-w-0">
-            <span className="text-lg font-black text-white leading-tight truncate">{record.pickupLocation || '---'}</span>
-            {record.pickupCoords && (
-              <a 
-                href={getGoogleMapsUrl(record.pickupCoords) || "#"} 
-                target="_blank" 
-                rel="noreferrer" 
-                onClick={(e) => e.stopPropagation()} 
-                className="p-2 bg-blue-500/10 text-blue-400 rounded-lg border border-blue-500/20 active:scale-90 ml-2"
-              >
-                <MapPin size={14} />
-              </a>
-            )}
-          </div>
-        </div>
-        <div className="flex items-start gap-3">
-          <div className="mt-1.5 w-2.5 h-2.5 rounded-full bg-red-500 shadow-[0_0_8px_#ef4444] flex-shrink-0" />
-          <div className="flex-1 flex items-center justify-between min-w-0">
-            <span className="text-lg font-black text-white leading-tight truncate">{record.dropoffLocation || '---'}</span>
-            {record.dropoffCoords && (
-              <a 
-                href={getGoogleMapsUrl(record.dropoffCoords) || "#"} 
-                target="_blank" 
-                rel="noreferrer" 
-                onClick={(e) => e.stopPropagation()} 
-                className="p-2 bg-blue-500/10 text-blue-400 rounded-lg border border-blue-500/20 active:scale-90 ml-2"
-              >
-                <MapPinned size={14} />
-              </a>
-            )}
-          </div>
-        </div>
-      </div>
-      <div className="flex flex-wrap items-center gap-2 mt-1">
-        <span className={`text-xs font-black px-3 py-1.5 rounded-lg border flex-1 text-center whitespace-nowrap ${getPaymentColorClass(record.paymentMethod)}`}>
-          {paymentName}
-        </span>
-        {record.rideType !== 'FLOW' && (
-           <span className="text-xs font-black text-gray-300 px-3 py-1.5 rounded-lg bg-gray-800 border border-gray-700 whitespace-nowrap">
-             {RIDE_LABELS[record.rideType]}
-           </span>
-        )}
-      </div>
-      {isDetailed && record.remarks && (
-        <div className="mt-2 pt-3 border-t border-gray-800/50 animate-in slide-in-from-top-2 duration-200">
-           <div className="bg-yellow-900/20 p-4 rounded-xl border border-yellow-700/30 flex items-start gap-3">
-             <MessageSquare className="w-5 h-5 text-yellow-500 mt-0.5 flex-shrink-0" />
-             <p className="text-base font-bold text-yellow-100 whitespace-pre-wrap leading-relaxed">{record.remarks}</p>
-           </div>
-        </div>
-      )}
-    </div>
-  );
-};
-
-export const ReportSummaryView: React.FC<{ 
-  records: SalesRecord[], 
-  customLabels: Record<string, string>, 
-  startTime?: number, 
-  endTime?: number,
-  totalRestMinutes?: number,
-  enabledMethods?: PaymentMethod[]
-}> = ({ records, customLabels, startTime, endTime, totalRestMinutes, enabledMethods }) => {
-  const totalAmount = records.reduce((s, r) => s + r.amount, 0);
-  const taxAmount = calculateTaxAmount(totalAmount);
-  const breakdown = getPaymentBreakdown(records);
-  const counts = getPaymentCounts(records);
-  const cashAmount = breakdown['CASH'] || 0;
-  
-  const displayStart = startTime || (records.length > 0 ? Math.min(...records.map(r => r.timestamp)) : 0);
-  const displayEnd = endTime || (records.length > 0 ? Math.max(...records.map(r => r.timestamp)) : 0);
-  const workDurationMs = (displayEnd - displayStart);
-  const durationHrs = Math.floor(workDurationMs / 3600000);
-  const durationMins = Math.floor((workDurationMs % 3600000) / 60000);
-  const durationStr = displayStart && displayEnd ? `${durationHrs}時間${String(durationMins).padStart(2, '0')}分` : '--時間--分';
-  const breakH = Math.floor((totalRestMinutes || 0) / 60);
-  const breakM = (totalRestMinutes || 0) % 60;
-  const breakStr = `${breakH}時間${String(breakM).padStart(2, '0')}分`;
-  const maleTotal = records.reduce((s, r) => s + (r.passengersMale || 0), 0);
-  const femaleTotal = records.reduce((s, r) => s + (r.passengersFemale || 0), 0);
-  const totalPassengers = maleTotal + femaleTotal;
-
-  // customLabelsの安全策
-  const safeCustomLabels = customLabels || {};
-
-  return (
-    <div className="w-full space-y-6">
-      <div className="text-center py-8 bg-[#1A222C] rounded-[32px] border border-gray-800 shadow-2xl relative overflow-hidden group">
-          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-amber-500 to-transparent opacity-50"></div>
-          <p className="text-sm font-black text-amber-500 uppercase tracking-[0.3em] mb-2 opacity-80">本日の営収 (税込)</p>
-          <div className="flex items-baseline justify-center gap-2 mb-2">
-            <span className="text-6xl font-black text-amber-600/80">¥</span>
-            {/* ★修正: 金額のフォントサイズを以前の80%に縮小 */}
-            <span className="text-[clamp(4rem,16vw,6.4rem)] font-black text-amber-500 leading-none tracking-tighter drop-shadow-[0_4px_10px_rgba(245,158,11,0.3)]">
-              {totalAmount.toLocaleString()}
-            </span>
-          </div>
-          <div className="flex flex-col items-center gap-1 mb-8">
-             <p className="text-xl font-bold text-gray-400">(内消費税 {formatCurrency(taxAmount)})</p>
-             <p className="text-xl font-bold text-gray-400">本日の営収(税抜き) {formatCurrency(totalAmount - taxAmount)}</p>
-          </div>
-          <div className="bg-gray-950/50 mx-6 p-5 rounded-3xl border border-gray-700/50 flex flex-col items-center gap-2 shadow-inner">
-              <span className="text-sm text-gray-400 font-bold uppercase tracking-widest flex items-center gap-1">
-                <Wallet className="w-5 h-5" /> 納金額 (現金)
-              </span>
-              <span className="text-5xl font-black text-white tracking-tight">{formatCurrency(cashAmount)}</span>
-          </div>
-      </div>
-      <div className="grid grid-cols-3 gap-2">
-          <div className="bg-gray-900/50 p-2 rounded-3xl border border-gray-800 flex flex-col items-center justify-center min-h-[100px] shadow-lg">
-             <Car className="w-6 h-6 text-blue-400 mb-1" />
-             <span className="text-[10px] text-gray-500 font-black tracking-widest uppercase mb-1">総回数</span>
-             <span className="text-2xl font-black text-white leading-none">{records.length}<span className="text-xs text-gray-600 ml-1">回</span></span>
-          </div>
-          <div className="bg-gray-900/50 p-2 rounded-3xl border border-gray-800 flex flex-col items-center justify-center min-h-[100px] shadow-lg">
-             <Timer className="w-6 h-6 text-green-400 mb-1" />
-             <span className="text-[10px] text-gray-500 font-black tracking-widest uppercase mb-1">稼働時間</span>
-             {/* ★修正: 稼働時間のフォントサイズを80%に縮小 */}
-             <span className="text-[clamp(0.8rem,3.2vw,1.2rem)] font-black text-white leading-none whitespace-nowrap">{durationStr}</span>
-          </div>
-          <div className="bg-gray-900/50 p-2 rounded-3xl border border-gray-800 flex flex-col items-center justify-center min-h-[100px] shadow-lg">
-             <Coffee className="w-6 h-6 text-amber-400 mb-1" />
-             <span className="text-[10px] text-gray-500 font-black tracking-widest uppercase mb-1">休憩</span>
-             {/* ★修正: 休憩時間のフォントサイズを80%に縮小 */}
-             <span className="text-[clamp(0.8rem,3.2vw,1.2rem)] font-black text-white leading-none whitespace-nowrap">{breakStr}</span>
-          </div>
-      </div>
-      <div className="bg-gray-900/30 p-6 rounded-[32px] border border-gray-800/50 flex justify-around items-center">
-          <div className="text-center">
-             <span className="text-sm font-bold text-blue-400 block mb-2 uppercase tracking-widest">男性総数</span>
-             <span className="text-4xl font-black text-white">{maleTotal}<span className="text-lg text-gray-600 ml-1">名</span></span>
-          </div>
-          <div className="text-center">
-             <span className="text-sm font-bold text-pink-400 block mb-2 uppercase tracking-widest">女性総数</span>
-             <span className="text-4xl font-black text-white">{femaleTotal}<span className="text-lg text-gray-600 ml-1">名</span></span>
-          </div>
-          <div className="w-px h-12 bg-gray-800"></div>
-          <div className="text-center">
-             <span className="text-sm font-bold text-gray-400 block mb-2 uppercase tracking-widest">総合計人数</span>
-             <span className="text-5xl font-black text-white">{totalPassengers}<span className="text-lg text-gray-600 ml-1">名</span></span>
-          </div>
-      </div>
-
-      {/* ★完全復元: 支払い種別内訳リスト (PaymentBreakdownList) をここに配置 */}
-      <div className="bg-[#1A222C] p-6 rounded-[32px] border border-gray-800 shadow-2xl">
-          <PaymentBreakdownList 
-              breakdown={breakdown} 
-              counts={counts} 
-              customLabels={safeCustomLabels} 
-              enabledMethods={enabledMethods} 
-          />
-      </div>
-    </div>
-  );
-};
 
 // --- ★共通コンポーネント: Daily Detail View (日報詳細) ---
 export const DailyDetailView: React.FC<{
@@ -390,7 +62,6 @@ export const DailyDetailView: React.FC<{
     ? [...records].sort((a,b)=>b.timestamp-a.timestamp) 
     : [...records].sort((a,b)=>a.timestamp-b.timestamp);
 
-  // customLabels安全策
   const safeCustomLabels = customLabels || {};
 
   return (
@@ -400,7 +71,12 @@ export const DailyDetailView: React.FC<{
           <h2 className="text-[clamp(1.6rem,7vw,2.2rem)] font-black text-white truncate">{date}</h2>
         </div>
         
-        <ReportSummaryView records={sortedRecords} customLabels={safeCustomLabels} totalRestMinutes={meta.totalRestMinutes} enabledMethods={Object.keys(PAYMENT_LABELS) as PaymentMethod[]} />
+        <ReportSummaryView 
+          records={sortedRecords} 
+          customLabels={safeCustomLabels} 
+          totalRestMinutes={meta.totalRestMinutes} 
+          enabledMethods={Object.keys(PAYMENT_LABELS) as PaymentMethod[]} 
+        />
         
         <section className="space-y-4">
           <div className="flex justify-between items-center px-1 flex-wrap gap-4">
@@ -415,7 +91,15 @@ export const DailyDetailView: React.FC<{
                 <div className="text-center py-10 text-gray-600 font-bold">データがありません</div>
             ) : (
                 sortedRecords.map((r, i) => (
-                <SalesRecordCard key={r.id} record={r} index={isDetailReversed ? sortedRecords.length - i : i + 1} isDetailed={isDetailed} customLabels={safeCustomLabels} businessStartHour={businessStartHour} onClick={() => isMe && onEditRecord ? onEditRecord(r) : {}} />
+                <SalesRecordCard 
+                  key={r.id} 
+                  record={r} 
+                  index={isDetailReversed ? sortedRecords.length - i : i + 1} 
+                  isDetailed={isDetailed} 
+                  customLabels={safeCustomLabels} 
+                  businessStartHour={businessStartHour} 
+                  onClick={() => isMe && onEditRecord ? onEditRecord(r) : {}} 
+                />
                 ))
             )}
           </div>
@@ -460,10 +144,8 @@ export const MonthlyDashboard: React.FC<{
     const [isHistoryReversed, setIsHistoryReversed] = useState(true);
     const displayMonthStr = `${displayMonth.getFullYear()}年 ${displayMonth.getMonth() + 1}月度`;
     
-    // --- Table Logic ---
     const [viewMode, setViewMode] = useState<'monthly' | 'yearly'>('monthly');
     const [tableTargetDate, setTableTargetDate] = useState(new Date());
-    // ★修正: デフォルトで閉じる
     const [isTableOpen, setIsTableOpen] = useState(false);
 
     useEffect(() => {
@@ -491,7 +173,6 @@ export const MonthlyDashboard: React.FC<{
         const months = [];
         let totalDays = 0, totalCount = 0, totalDispatch = 0, totalSales = 0;
         
-        // 安全策
         const safeHistory = history || [];
 
         for (let m = 0; m < 12; m++) {
@@ -519,7 +200,6 @@ export const MonthlyDashboard: React.FC<{
         const days = []; const curr = new Date(start);
         while (curr <= adjustedEnd) { days.push(new Date(curr)); curr.setDate(curr.getDate() + 1); }
         
-        // 安全策
         const safeHistory = history || [];
 
         const rows = days.map(day => {
@@ -543,7 +223,6 @@ export const MonthlyDashboard: React.FC<{
         return [...dailyGroups].sort((a, b) => isHistoryReversed ? b[0].localeCompare(a[0]) : a[0].localeCompare(b[0]));
     }, [dailyGroups, isHistoryReversed]);
 
-    // サマリー用
     const summaryStats = useMemo(() => {
         if (!showSummary) return null;
         const records = monthData;
@@ -560,7 +239,6 @@ export const MonthlyDashboard: React.FC<{
         return monthData.length > 0 ? Math.round(summaryStats!.totalAmount / monthData.length) : 0;
     }, [monthData, summaryStats, showSummary]);
 
-    // customLabels安全策
     const safeCustomLabels = customLabels || {};
 
     return (
@@ -593,7 +271,6 @@ export const MonthlyDashboard: React.FC<{
                             <span className={`text-xs font-bold opacity-80 ${viewMode === 'yearly' && 'text-orange-100'}`}>{viewMode === 'monthly' ? tableMonthlyData.periodLabel : yearlyData.periodLabel}</span>
                         </div>
                         <div className="flex gap-2">
-                            {/* ★削除: CSVダウンロードボタン削除済み */}
                             <button onClick={(e) => { e.stopPropagation(); shiftPeriod(1); }} className="p-1 hover:bg-black/10 rounded-full active:scale-90"><ChevronRight className="w-6 h-6" /></button>
                         </div>
                     </div>
@@ -774,7 +451,6 @@ const HistoryView: React.FC<HistoryViewProps> = ({
 
   const processedTargetDateRef = useRef<string | null>(null);
 
-  // 公開ステータスからユーザー一覧を取得
   useEffect(() => {
     const q = query(collection(db, "public_status"), orderBy("lastUpdated", "desc"), limit(50));
     const unsub = onSnapshot(q, (snap) => {
@@ -788,8 +464,6 @@ const HistoryView: React.FC<HistoryViewProps> = ({
     return () => unsub();
   }, []);
 
-  // ユーザー選択変更時の処理
-  // ★修正: usersコレクションではなく public_status のデータを使用する
   useEffect(() => {
       const currentUid = auth.currentUser?.uid;
       if (viewingUid === currentUid) {
@@ -802,14 +476,12 @@ const HistoryView: React.FC<HistoryViewProps> = ({
           setSelectedUserObj(user || null);
           
           if (user) {
-              // public_status のデータから履歴を生成
               const activeRecords = user.records || [];
               let pastRecords: SalesRecord[] = [];
               if (user.months) {
                    pastRecords = Object.values(user.months).flatMap((m: any) => m.records || []);
               }
               
-              // 重複を排除し、降順にソートして結合
               const combined = [...pastRecords, ...activeRecords]
                 .filter((r: SalesRecord, index: number, self: SalesRecord[]) => index === self.findIndex((t) => t.id === r.id))
                 .sort((a: SalesRecord, b: SalesRecord) => b.timestamp - a.timestamp);
@@ -821,7 +493,6 @@ const HistoryView: React.FC<HistoryViewProps> = ({
       }
   }, [viewingUid, colleagues]);
 
-  // ディープリンク対応
   useEffect(() => {
     if (initialTargetDate) {
         const targetStr = initialTargetDate.toString();
@@ -843,26 +514,21 @@ const HistoryView: React.FC<HistoryViewProps> = ({
     }
   }, [initialTargetDate, shimebiDay, businessStartHour]);
 
-  // ★修正: ユーザー選択リストのフィルタリングを修正
   const selectableUsers = useMemo(() => {
     const currentUid = auth.currentUser?.uid;
     const currentUserEmail = auth.currentUser?.email;
     const isAdmin = currentUserEmail && ADMIN_EMAILS.includes(currentUserEmail);
 
     return colleagues.filter(u => {
-      if (u.uid === currentUid) return true; // 自分は必ず表示
-      if (isAdmin) return true; // 管理者は全員表示
+      if (u.uid === currentUid) return true;
+      if (isAdmin) return true;
       
-      const mode = u.visibilityMode || 'PUBLIC'; // デフォルトはPUBLIC
-      
-      if (mode === 'PRIVATE') return false; // 非公開は非表示
-      
+      const mode = u.visibilityMode || 'PUBLIC';
+      if (mode === 'PRIVATE') return false;
       if (mode === 'CUSTOM') {
-        // カスタムの場合は許可リストに含まれているか
         return u.allowedViewers && u.allowedViewers.includes(currentUid);
       }
-      
-      return true; // PUBLICなら表示
+      return true;
     }).sort((a, b) => {
         if (a.uid === currentUid) return -1;
         if (b.uid === currentUid) return 1;

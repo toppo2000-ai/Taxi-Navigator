@@ -1,6 +1,6 @@
 import React from 'react';
 import { LogOut, ShieldAlert, MessageCircle, User } from 'lucide-react';
-import { auth } from './firebase';
+import { auth } from '@/services/firebase';
 
 export default function UnauthorizedView() {
   return (

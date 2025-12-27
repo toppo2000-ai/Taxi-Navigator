@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { collection, getDocs, doc, updateDoc, query } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';   // ★追加
-import { db, auth } from './firebase';                 // ★auth も追加
+import { db, auth } from '@/services/firebase';                 // ★auth も追加
 import { Users, CheckCircle, XCircle, Shield, ShieldOff, ArrowLeft } from 'lucide-react';
 
 interface UserProfile {

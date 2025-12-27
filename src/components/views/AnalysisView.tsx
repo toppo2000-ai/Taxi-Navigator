@@ -19,8 +19,8 @@ import {
   ArrowUpRight
 } from 'lucide-react';
 import { collection, onSnapshot } from 'firebase/firestore';
-import { db, auth } from '../firebase';
-import { SalesRecord, MonthlyStats, PaymentMethod } from '../types';
+import { db, auth } from '@/services/firebase';
+import { SalesRecord, MonthlyStats, PaymentMethod } from '@/types';
 import { 
   getBillingPeriod, 
   formatCurrency, 

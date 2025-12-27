@@ -1,20 +1,67 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Taxi Navigator
 
-# Run and deploy your AI Studio app
+## プロジェクト概要
+Taxi Navigatorは、タクシーの運行管理や乗客の利便性を向上させるためのアプリケーションです。このプロジェクトは、タクシー運転手、管理者、そして乗客の3つの主要なユーザーグループを対象としています。それぞれのニーズに応じた機能を提供し、効率的で快適なタクシー体験を実現することを目指しています。
 
-This contains everything you need to run your app locally.
+## 主な機能
+- **運転手向け機能**:
+  - リアルタイムの乗客リクエストの受信
+  - 効率的なルート案内
+  - 収益管理と履歴の確認
 
-View your app in AI Studio: https://ai.studio/apps/drive/1IEN970EZtHd2h4poaHKVhejMRFWiN98V
+- **管理者向け機能**:
+  - タクシーの稼働状況のモニタリング
+  - 運転手のステータス管理
+  - CSVインポートによるデータ管理
 
-## Run Locally
+- **乗客向け機能**:
+  - タクシーの現在地確認
+  - 予約と支払いの簡略化
 
-**Prerequisites:**  Node.js
+## プロジェクト構造
+このプロジェクトは以下のような構造を持っています:
+
+- **components/**: UIコンポーネントを格納
+  - `Header.tsx`: アプリケーションのヘッダー
+  - `Dashboard.tsx`: 管理者向けダッシュボード
+  - その他のビューやモジュール
+
+- **hooks/**: カスタムフックを格納
+  - `useAppLogic.ts`: アプリケーションのロジックを管理
+
+- **public/**: 公開用の静的ファイル
+  - `manifest.json`: PWA設定ファイル
+
+- **utils.ts**: ユーティリティ関数
+
+- **firebase.ts**: Firebase設定ファイル
+
+## ユーザー満足度向上のためのアプローチ
+1. **直感的なUI/UX**: ユーザーが簡単に操作できるインターフェースを提供します。
+2. **リアルタイムデータ**: 最新の情報を提供することで、効率的な運行をサポートします。
+3. **柔軟な拡張性**: 将来的な機能追加やカスタマイズが容易な設計を採用しています。
+
+## ローカルでの実行方法
+
+**前提条件:** Node.js
 
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+1. 依存関係をインストール:
+   ```bash
+   npm install
+   ```
+2. 必要な環境変数を設定:
+   `.env.local` ファイルに `GEMINI_API_KEY` を設定してください。
+3. アプリケーションを起動:
+   ```bash
+   npm run dev
+   ```
+
+## デプロイ
+Firebaseを使用してデプロイを行います。以下のコマンドを実行してください:
+```bash
+firebase deploy
+```
+
+## ライセンス
+このプロジェクトはMITライセンスの下で提供されています。

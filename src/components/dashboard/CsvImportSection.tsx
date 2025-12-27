@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { FileUp, Download, Loader2, User } from 'lucide-react';
-import { SalesRecord, PaymentMethod, RideType } from '../types';
-import { PAYMENT_LABELS, RIDE_LABELS } from '../utils';
+import { SalesRecord, PaymentMethod, RideType } from '@/types';
+import { PAYMENT_LABELS, RIDE_LABELS } from '@/utils';
 
 interface CsvImportSectionProps {
   onImport: (records: SalesRecord[], targetUid?: string) => void;
