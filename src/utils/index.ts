@@ -1,7 +1,6 @@
 import { PaymentMethod, RideType, SalesRecord } from '@/types';
 
-// --- Labels & Dictionaries ---
-
+// 支払い方法のラベル
 export const PAYMENT_LABELS: Record<PaymentMethod, string> = {
   CASH: '現金',
   CARD: 'クレジット',
@@ -13,6 +12,7 @@ export const PAYMENT_LABELS: Record<PaymentMethod, string> = {
   TICKET: 'タクチケ'
 };
 
+// 乗車タイプのラベル
 export const RIDE_LABELS: Record<RideType, string> = {
   FLOW: '流し',
   WAIT: '待機',
@@ -22,52 +22,36 @@ export const RIDE_LABELS: Record<RideType, string> = {
   WIRELESS: '無線'
 };
 
-// --- Formatting Functions ---
-
-/**
- * Formats a number as JPY currency string (e.g., ¥1,200).
- */
+// 金額を日本円表記でフォーマット (例: ¥1,200)
 export const formatCurrency = (amt: number) => `¥${Math.round(amt).toLocaleString()}`;
 
-/**
- * Formats a number or string into a comma-separated string.
- * Used primarily for input fields.
- */
+// 数字をカンマ区切り文字列にフォーマット (主に入力フィールド用)
 export const toCommaSeparated = (val: string | number) => {
   const num = val.toString().replace(/[^0-9]/g, '');
   if (num === '') return '';
   return parseInt(num).toLocaleString();
 };
 
-/**
- * Parses a comma-separated string back into a number.
- */
+// カンマ区切り文字列を数字に変換
 export const fromCommaSeparated = (val: string) => {
   if (typeof val !== 'string') return val;
   return parseInt(val.replace(/,/g, '')) || 0;
 };
 
-// --- Business Logic ---
-
-/**
- * Calculates the net total (excluding tax) from a gross total.
- * Assumes 10% tax. Rounds to the nearest 10 yen.
- * Example: 9900 -> 9000
- */
+// 税抜き合計金額を計算 (消費税10%と仮定、10円単位に四捨五入)
 export const calculateNetTotal = (total: number) => {
   const net = total / 1.1;
   return Math.round(net / 10) * 10;
 };
 
-/**
- * Calculates the tax amount from a gross total.
- */
+// 税額を計算
 export const calculateTaxAmount = (total: number) => {
   return total - calculateNetTotal(total);
 };
 
 export * from './date';
 
+// 支払い方法別の件数をカウント
 export const getPaymentCounts = (records: SalesRecord[]) => {
   const counts: Record<string, number> = {};
   records.forEach(r => {
@@ -76,10 +60,7 @@ export const getPaymentCounts = (records: SalesRecord[]) => {
   return counts;
 };
 
-/**
- * Aggregates sales records by payment method.
- * Handles split payments where 'nonCashAmount' is specified.
- */
+// 売上記録を支払い方法別に集計 (分割払いの非現金決済額を考慮)
 export const getPaymentBreakdown = (records: SalesRecord[]) => {
   const breakdown: Record<string, number> = {};
   
@@ -109,8 +90,7 @@ export const getPaymentBreakdown = (records: SalesRecord[]) => {
   return breakdown;
 };
 
-// --- String Helpers for Address Formatting ---
-
+// 漢数字をアラビア数字に変換
 export const kanjiToArabic = (str: string) => {
   const kanjiMap: Record<string, string> = {
     '一': '1', '二': '2', '三': '3', '四': '4', '五': '5',
@@ -125,13 +105,12 @@ export const kanjiToArabic = (str: string) => {
   });
 };
 
+// 数字を全角に変換
 export const toFullWidth = (str: string) => {
   return str.replace(/[0-9]/g, (s) => String.fromCharCode(s.charCodeAt(0) + 0xFEE0));
 };
 
-/**
- * Formats a raw address object (from OpenStreetMap/Nominatim) into a Japanese address string.
- */
+// OpenStreetMap/Nominatim から取得したアドレスオブジェクトを日本語アドレス文字列にフォーマット
 export const formatJapaneseAddress = (data: any) => {
   if (!data) return '';
   const a = data.address || {};
@@ -161,9 +140,7 @@ export const formatJapaneseAddress = (data: any) => {
   }
 };
 
-/**
- * Returns the CSS color classes for a given payment method.
- */
+// 支払い方法に対応するCSSカラークラスを返す
 export const getPaymentColorClass = (method: PaymentMethod) => {
   switch (method) {
     case 'CASH': return 'bg-amber-400/10 text-amber-200 border-amber-400/30';
@@ -178,9 +155,7 @@ export const getPaymentColorClass = (method: PaymentMethod) => {
   }
 };
 
-/**
- * Generates a CSV string from sales records.
- */
+// 売上記録をCSV文字列として生成
 export const generateCSV = (records: SalesRecord[], customLabels: Record<string, string> = {}) => {
   const header = ['日時', '乗車タイプ', '乗車地', '降車地', '運賃', '高速代', '決済方法', '非現金決済額', '男性人数', '女性人数', '備考', '要注意客'];
   
@@ -213,13 +188,7 @@ export const generateCSV = (records: SalesRecord[], customLabels: Record<string,
   return '\uFEFF' + [header.join(','), ...rows].join('\n');
 };
 
-// --- Google Map Functions ---
-
-/**
- * ★修正：GoogleマップのURLを生成する（公式API形式）
- * 標準的な https://www.google.com/maps/search/?api=1&query=緯度,経度 を使用します。
- * これにより、どの端末でも確実にGoogleマップアプリが起動し、指定座標にピンが立ちます。
- */
+// GoogleマップのURLを生成 (公式API形式)
 export const getGoogleMapsUrl = (coords?: string) => {
   if (!coords) return null;
   
@@ -228,10 +197,7 @@ export const getGoogleMapsUrl = (coords?: string) => {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(cleanCoords)}`;
 };
 
-/**
- * generateDefaultDutyDays
- * 締め日に基づいて初期の出番日を生成するロジック
- */
+// 締め日に基づいて初期の出番日を生成
 export const generateDefaultDutyDays = (
   shimebiDay: number = 20, 
   startHour: number = 9

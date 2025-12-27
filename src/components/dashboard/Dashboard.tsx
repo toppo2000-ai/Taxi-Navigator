@@ -40,26 +40,29 @@ import { FullScreenClock } from '@/components/common/FullScreenClock';
 import { NeonProgressBar } from '@/components/common/NeonProgressBar';
 import { ColleagueStatusList } from '@/components/dashboard/ColleagueStatusList';
 
-// ★管理者設定
+// ========== 定数 ==========
+// 管理者メールアドレスリスト（全機能アクセス権限）
 const ADMIN_EMAILS = [
   "toppo2000@gmail.com", 
   "admin-user@gmail.com"
 ];
 
+// ========== Props インターフェース ==========
+// Dashboard コンポーネントのプロパティ定義
 interface DashboardProps { 
-  shift: Shift | null; 
-  stats: MonthlyStats; 
-  breakState: BreakState;
-  onStart: (goal: number, hours: number) => void;
-  onEnd: () => void;
-  onAdd: (initialRemarks?: string) => void;
-  onEdit: (record: SalesRecord) => void;
-  onUpdateGoal: (newGoal: number) => void;
-  onUpdateShiftGoal: (newGoal: number) => void;
-  onAddRestMinutes: (minutes: number) => void;
-  onToggleBreak: () => void;
-  setBreakState: (state: BreakState) => void;
-  onShiftEdit: () => void;
+  shift: Shift | null;                                    // 現在のシフト情報（null の場合はシフト前）
+  stats: MonthlyStats;                                    // 月間統計情報（目標、売上、出勤日など）
+  breakState: BreakState;                                 // 休憩状態（休憩中かどうか、開始時刻）
+  onStart: (goal: number, hours: number) => void;         // シフト開始時のコールバック（目標金額と予定時間）
+  onEnd: () => void;                                      // シフト終了時のコールバック
+  onAdd: (initialRemarks?: string) => void;               // 乗車記録追加のコールバック（初期備考オプション）
+  onEdit: (record: SalesRecord) => void;                  // 乗車記録編集のコールバック
+  onUpdateGoal: (newGoal: number) => void;                // 月間目標更新のコールバック
+  onUpdateShiftGoal: (newGoal: number) => void;           // 本日の目標更新のコールバック
+  onAddRestMinutes: (minutes: number) => void;            // 休憩時間追加のコールバック（分単位）
+  onToggleBreak: () => void;                              // 休憩開始/終了トグルのコールバック
+  setBreakState: (state: BreakState) => void;             // 休憩状態直接設定のコールバック
+  onShiftEdit: () => void;                                // シフト情報編集のコールバック
 }
 
 const Dashboard: React.FC<DashboardProps> = ({
@@ -77,41 +80,61 @@ const Dashboard: React.FC<DashboardProps> = ({
   setBreakState,
   onShiftEdit
 }) => {
-  const { user } = useAuth();
-  const [goalIn, setGoalIn] = useState(stats.defaultDailyGoal.toLocaleString());
-  const [plannedHours, setPlannedHours] = useState(12);
-  const [isGoalEditOpen, setIsGoalEditOpen] = useState(false);
-  const [isShiftGoalEditOpen, setIsShiftGoalEditOpen] = useState(false);
-  const [newMonthlyGoal, setNewMonthlyGoal] = useState(stats.monthlyGoal.toLocaleString());
-  const [newShiftGoal, setNewShiftGoal] = useState(shift?.dailyGoal.toLocaleString() || stats.defaultDailyGoal.toLocaleString());
-  const [isHistoryReversed, setIsHistoryReversed] = useState(true);
-  const [isDetailed, setIsDetailed] = useState(false);
-  const [now, setNow] = useState(Date.now());
-  const [isClockOpen, setIsClockOpen] = useState(false);
-  const [breakDurationMs, setBreakDurationMs] = useState(0);
-  const breakIntervalRef = useRef<number | null>(null);
+  // ========== 認証 ==========
+  const { user } = useAuth();  // 現在のログインユーザー情報
 
+  // ========== State管理 ==========
+  // シフト開始時の入力値
+  const [goalIn, setGoalIn] = useState(stats.defaultDailyGoal.toLocaleString());  // 目標金額（カンマ区切り文字列）
+  const [plannedHours, setPlannedHours] = useState(12);  // 予定営業時間（デフォルト12時間）
 
+  // モーダル表示制御
+  const [isGoalEditOpen, setIsGoalEditOpen] = useState(false);  // 月間目標編集モーダル
+  const [isShiftGoalEditOpen, setIsShiftGoalEditOpen] = useState(false);  // 本日の目標編集モーダル
+  const [isClockOpen, setIsClockOpen] = useState(false);  // 全画面時計モーダル
+
+  // 目標編集用の一時入力値
+  const [newMonthlyGoal, setNewMonthlyGoal] = useState(stats.monthlyGoal.toLocaleString());  // 月間目標（編集中）
+  const [newShiftGoal, setNewShiftGoal] = useState(shift?.dailyGoal.toLocaleString() || stats.defaultDailyGoal.toLocaleString());  // 本日の目標（編集中）
+
+  // 履歴表示制御
+  const [isHistoryReversed, setIsHistoryReversed] = useState(true);  // 履歴を新しい順に表示するか
+  const [isDetailed, setIsDetailed] = useState(false);  // 履歴を詳細表示するか
+
+  // 時刻管理
+  const [now, setNow] = useState(Date.now());  // 現在時刻（1秒ごとに更新）
+
+  // 休憩タイマー管理
+  const [breakDurationMs, setBreakDurationMs] = useState(0);  // 休憩経過時間（ミリ秒）
+  const breakIntervalRef = useRef<number | null>(null);  // 休憩タイマーのインターバルID
+
+  // ========== Effects ==========
+  // 現在時刻を1秒ごとに更新
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, []);
 
+  // シフト終了時に目標金額入力をリセット
   useEffect(() => {
     if (!shift) {
       setGoalIn(stats.defaultDailyGoal.toLocaleString());
     }
   }, [stats.defaultDailyGoal, shift]);
 
+  // 休憩タイマーの管理（休憩中は1秒ごとに経過時間を更新）
   useEffect(() => {
     if (breakState.isActive && breakState.startTime) {
+      // 初回の経過時間を設定
       setBreakDurationMs(Date.now() - breakState.startTime);
+      // 1秒ごとに経過時間を更新
       breakIntervalRef.current = window.setInterval(() => {
         if (breakState.startTime) {
           setBreakDurationMs(Date.now() - breakState.startTime);
         }
       }, 1000);
     } else {
+      // 休憩終了時はタイマーをクリア
       if (breakIntervalRef.current) {
         clearInterval(breakIntervalRef.current);
       }
@@ -122,20 +145,24 @@ const Dashboard: React.FC<DashboardProps> = ({
     };
   }, [breakState]);
 
+  // ========== イベントハンドラー ==========
+  // 休憩を終了して休憩時間を登録（売上記録なし）
   const handleStopBreakAndRegister = () => {
-    const minutes = Math.floor(breakDurationMs / 60000);
+    const minutes = Math.floor(breakDurationMs / 60000);  // ミリ秒を分に変換
     if (minutes > 0) {
-      onAddRestMinutes(minutes);
+      onAddRestMinutes(minutes);  // 休憩時間を記録
     }
-    setBreakState({ isActive: false, startTime: null });
+    setBreakState({ isActive: false, startTime: null });  // 休憩状態をリセット
   };
 
+  // 休憩を終了して乗車記録を追加（待機時間を備考に記入）
   const handleStopBreakAndRide = () => {
-    const minutes = Math.floor(breakDurationMs / 60000);
-    setBreakState({ isActive: false, startTime: null });
-    onAdd(`待機時間: ${minutes}分`);
+    const minutes = Math.floor(breakDurationMs / 60000);  // ミリ秒を分に変換
+    setBreakState({ isActive: false, startTime: null });  // 休憩状態をリセット
+    onAdd(`待機時間: ${minutes}分`);  // 待機時間を備考に入れて乗車記録へ
   };
 
+  // ミリ秒を HH:MM:SS 形式にフォーマット
   const formatDuration = (ms: number) => {
     const totalSeconds = Math.floor(ms / 1000);
     const h = Math.floor(totalSeconds / 3600);
@@ -144,17 +171,29 @@ const Dashboard: React.FC<DashboardProps> = ({
     return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   };
 
+  // ========== 計算ロジック（useMemo で最適化） ==========
+  // シフト中の乗車記録一覧
   const shiftRecords = useMemo(() => shift?.records || [], [shift]);
+  
+  // 本日の売上合計（税込）
   const dailyTotal = useMemo(() => shiftRecords.reduce((s: number, r: SalesRecord) => s + r.amount, 0), [shiftRecords]);
+  
+  // 本日の売上合計（税抜）
   const dailyNet = useMemo(() => calculateNetTotal(dailyTotal), [dailyTotal]);
+  
+  // 支払方法別の売上内訳
   const currentShiftBreakdown = useMemo(() => getPaymentBreakdown(shiftRecords), [shiftRecords]);
+  
+  // 支払方法別の件数
   const currentShiftCounts = useMemo(() => getPaymentCounts(shiftRecords), [shiftRecords]);
 
+  // シフト開始からの経過時間（分単位）
   const elapsedMinutes = useMemo(() => {
     if (!shift) return 0;
     return (now - shift.startTime) / 60000;
   }, [shift, now]);
 
+  // シフト開始からの経過時間（文字列表示用）
   const elapsedTimeStr = useMemo(() => {
     if (!shift) return "";
     const diff = now - shift.startTime;
@@ -163,50 +202,68 @@ const Dashboard: React.FC<DashboardProps> = ({
     return `${hours}時間${String(minutes).padStart(2, '0')}分`;
   }, [shift, now]);
 
+  // 時間あたりの売上（1時間あたり何円稼いでいるか）
   const hourlySales = useMemo(() => {
     if (elapsedMinutes <= 0) return 0;
-    return (dailyTotal / elapsedMinutes) * 60;
+    return (dailyTotal / elapsedMinutes) * 60;  // 分単位を時間単位に変換
   }, [dailyTotal, elapsedMinutes]);
 
+  // 目標まで残り（あと何円必要か）
   const remainingToGoal = useMemo(() => {
     if (!shift) return 0;
     return Math.max(0, shift.dailyGoal - dailyTotal);
   }, [shift, dailyTotal]);
 
+  // 基準値（予定営業時間に対する進捗の過不足）
+  // プラス：予定より進んでいる、マイナス：予定より遅れている
   const referenceValue = useMemo(() => {
     if (!shift || !shift.plannedHours || shift.plannedHours === 0) return 0;
-    const currentElapsedHours = (now - shift.startTime) / (1000 * 60 * 60);
-    const hourlyTarget = shift.dailyGoal / shift.plannedHours;
-    const idealCurrentSales = hourlyTarget * currentElapsedHours;
-    return dailyTotal - idealCurrentSales;
+    const currentElapsedHours = (now - shift.startTime) / (1000 * 60 * 60);  // 現在の経過時間
+    const hourlyTarget = shift.dailyGoal / shift.plannedHours;  // 1時間あたりの目標売上
+    const idealCurrentSales = hourlyTarget * currentElapsedHours;  // この時点での理想的な売上
+    return dailyTotal - idealCurrentSales;  // 実際の売上との差
   }, [shift, now, dailyTotal]);
 
+  // 本日の目標達成率（%）
   const dailyProgress = shift ? (dailyTotal / (shift.dailyGoal || 1)) * 100 : 0;
+  
+  // 履歴表示用にソートされた乗車記録（新しい順/古い順）
   const sortedRecords = useMemo(() => isHistoryReversed ? [...shiftRecords].reverse() : [...shiftRecords], [shiftRecords, isHistoryReversed]);
+  
+  // 請求期間（締日から次の締日まで）
   const billingPeriod = useMemo(() => getBillingPeriod(new Date(), stats.shimebiDay, stats.businessStartHour), [stats.shimebiDay, stats.businessStartHour]);
+  
+  // 本日の営業日付（業務開始時刻基準）
   const todayBusinessDate = getBusinessDate(Date.now(), stats.businessStartHour);
 
+  // 今期の残り出勤日数
   const remainingDutyDays = useMemo(() => {
     if (!stats.dutyDays) return 0;
     return stats.dutyDays.filter((dStr: string) => dStr >= todayBusinessDate && dStr <= formatDate(billingPeriod.end)).length;
   }, [stats.dutyDays, todayBusinessDate, billingPeriod.end]);
 
+  // 1日あたりに必要な売上（月間目標達成のため）
   const requiredPerDay = useMemo(() => {
-    const remainingGoal = Math.max(0, stats.monthlyGoal - stats.totalSales);
-    return remainingDutyDays <= 0 ? 0 : remainingGoal / remainingDutyDays;
+    const remainingGoal = Math.max(0, stats.monthlyGoal - stats.totalSales);  // 残りの目標金額
+    return remainingDutyDays <= 0 ? 0 : remainingGoal / remainingDutyDays;  // 残り出勤日で割る
   }, [stats.monthlyGoal, stats.totalSales, remainingDutyDays]);
 
+  // 予想終了時刻（シフト開始時刻 + 予定営業時間）
   const estimatedEndTime = useMemo(() => {
     if (!shift) return null;
-    return shift.startTime + (shift.plannedHours * 3600000);
+    return shift.startTime + (shift.plannedHours * 3600000);  // ミリ秒に変換
   }, [shift]);
 
+  // 予定営業時間の選択肢（4時間〜24時間）
   const hoursOptions = Array.from({ length: 21 }, (_, i) => i + 4);
 
+  // ========== コンポーネント ==========
+  // プライバシーバッジ：ユーザーの権限・公開設定を表示
   const PrivacyBadge = () => {
     const currentUserEmail = user?.email || "";
     const isAdmin = ADMIN_EMAILS.includes(currentUserEmail);
 
+    // 管理者の場合
     if (isAdmin) {
       return (
         <div className="flex items-center gap-1.5 px-3 py-1 bg-purple-500/10 border border-purple-500/30 rounded-full text-[10px] font-black text-purple-400 uppercase tracking-widest shadow-[0_0_10px_rgba(168,85,247,0.2)]">
@@ -216,8 +273,10 @@ const Dashboard: React.FC<DashboardProps> = ({
       );
     }
 
+    // 一般ユーザーの公開設定に応じてバッジを表示
     const mode = stats.visibilityMode || 'PUBLIC';
     
+    // 公開中
     if (mode === 'PUBLIC') {
       return (
         <div className="flex items-center gap-1.5 px-3 py-1 bg-green-500/10 border border-green-500/30 rounded-full text-[10px] font-black text-green-400 uppercase tracking-widest shadow-[0_0_10px_rgba(34,197,94,0.2)]">
@@ -226,6 +285,7 @@ const Dashboard: React.FC<DashboardProps> = ({
         </div>
       );
     }
+    // 非公開
     if (mode === 'PRIVATE') {
       return (
         <div className="flex items-center gap-1.5 px-3 py-1 bg-red-500/10 border border-red-500/30 rounded-full text-[10px] font-black text-red-400 uppercase tracking-widest shadow-[0_0_10px_rgba(239,68,68,0.2)]">
@@ -234,6 +294,7 @@ const Dashboard: React.FC<DashboardProps> = ({
         </div>
       );
     }
+    // 限定公開（カスタム）
     if (mode === 'CUSTOM') {
       return (
         <div className="flex items-center gap-1.5 px-3 py-1 bg-blue-500/10 border border-blue-500/30 rounded-full text-[10px] font-black text-blue-400 uppercase tracking-widest shadow-[0_0_10px_rgba(59,130,246,0.2)]">
@@ -245,11 +306,14 @@ const Dashboard: React.FC<DashboardProps> = ({
     return null;
   };
 
+  // ========== JSX レンダリング ==========
   return (
     <div className="p-4 pb-32 space-y-5 w-full max-w-full overflow-hidden">
       
+      {/* 全画面時計モーダル（ポータル表示） */}
       {isClockOpen && createPortal(<FullScreenClock onClose={() => setIsClockOpen(false)} />, document.body)}
 
+      {/* シフト中の場合：現在時刻とプライバシーバッジを表示 */}
       {shift && (
         <div className="flex justify-between items-end px-2 mb-2">
           <div 
@@ -265,6 +329,7 @@ const Dashboard: React.FC<DashboardProps> = ({
         </div>
       )}
 
+      {/* シフト前の場合：月間売上状況を表示 */}
       {!shift && (
         <div className="bg-[#1A222C] rounded-[28px] px-5 py-6 border border-gray-800 shadow-2xl animate-in fade-in duration-300 space-y-6 w-full">
           <div className="flex items-center justify-between">
@@ -316,8 +381,10 @@ const Dashboard: React.FC<DashboardProps> = ({
         </div>
       )}
 
+      {/* シフト前の場合：同僚の稼働状況リストを表示 */}
       {!shift && <ColleagueStatusList followingUsers={stats.followingUsers || []} />}
 
+      {/* 月間目標編集モーダル */}
       {isGoalEditOpen && (
         <ModalWrapper onClose={() => setIsGoalEditOpen(false)}>
           <div className="space-y-6 pb-4 text-center">
@@ -331,6 +398,7 @@ const Dashboard: React.FC<DashboardProps> = ({
         </ModalWrapper>
       )}
 
+      {/* 本日の目標編集モーダル */}
       {isShiftGoalEditOpen && (
         <ModalWrapper onClose={() => setIsShiftGoalEditOpen(false)}>
           <div className="space-y-6 pb-4 text-center">
@@ -344,7 +412,9 @@ const Dashboard: React.FC<DashboardProps> = ({
         </ModalWrapper>
       )}
 
+      {/* ========== シフト前/シフト中の画面切り替え ========== */}
       {!shift ? (
+        /* シフト前：出庫画面 */
         <div className="bg-[#1A222C] rounded-[32px] p-6 border border-gray-800 text-center space-y-6 shadow-2xl">
           <Zap className="text-amber-500 w-16 h-16 mx-auto animate-pulse" />
           <div className="space-y-2">
@@ -396,6 +466,7 @@ const Dashboard: React.FC<DashboardProps> = ({
           <button onClick={() => onStart(fromCommaSeparated(goalIn), plannedHours)} className="w-full bg-[#EAB308] text-black py-5 rounded-2xl font-black text-2xl shadow-xl active:scale-95 transition-transform">シフト開始</button>
         </div>
       ) : (
+        /* シフト中：売上実績と記録管理 */
         <div className="space-y-5 w-full">
           <div className="bg-[#1A222C] rounded-[28px] p-5 border border-gray-800 shadow-2xl w-full">
             <div className="flex justify-between items-start mb-5 gap-3">
@@ -480,7 +551,9 @@ const Dashboard: React.FC<DashboardProps> = ({
               </div>
             </div>
 
+            {/* 休憩中/非休憩中の UI 切り替え */}
             {breakState.isActive ? (
+              /* 休憩中：休憩タイマーと終了ボタン */
               <div className="bg-gray-900/80 rounded-2xl p-5 border-2 border-indigo-500/50 shadow-2xl mb-4 animate-in fade-in">
                 <div className="flex flex-col items-center mb-5">
                   <span className="text-indigo-400 font-black uppercase tracking-widest text-sm flex items-center gap-2 mb-2">
@@ -508,6 +581,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                 </div>
               </div>
             ) : (
+              /* 非休憩中：休憩開始ボタンと乗車記録ボタン */
               <div className="flex gap-3 h-20">
                 <button 
                   onClick={onToggleBreak}
@@ -526,9 +600,12 @@ const Dashboard: React.FC<DashboardProps> = ({
             )}
           </div>
 
+          {/* ========== 履歴・記録セクション ========== */}
           <div className="space-y-4 w-full">
+            {/* 同僚の稼働状況リスト */}
             <ColleagueStatusList followingUsers={stats.followingUsers || []} />
 
+            {/* 本日の売上履歴ヘッダー */}
             <div className="flex flex-col gap-3">
               <h3 className="text-lg font-black px-2 text-white flex justify-between items-center tracking-tight italic uppercase flex-wrap gap-2">
                 <span className="whitespace-nowrap">今回の履歴</span>
@@ -546,6 +623,7 @@ const Dashboard: React.FC<DashboardProps> = ({
               </h3>
             </div>
 
+            {/* 売上記録カード一覧 */}
             <div className="space-y-3 w-full">
               {sortedRecords.length === 0 ? (
                 <div className="bg-[#1A222C] p-8 rounded-[28px] border border-gray-800 text-center text-gray-600 font-black uppercase tracking-widest text-sm">記録がありません</div>
@@ -567,6 +645,7 @@ const Dashboard: React.FC<DashboardProps> = ({
               )}
             </div>
 
+            {/* 支払方法別の内訳表示 */}
             {shiftRecords.length > 0 && (
                 <div className="mt-4">
                     <PaymentBreakdownList 

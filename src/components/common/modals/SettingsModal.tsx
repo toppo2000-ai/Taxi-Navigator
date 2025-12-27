@@ -1,3 +1,5 @@
+// 設定モーダルコンポーネント - アプリ設定とユーザー管理
+// 基本設定（目標・スケジュール）・表示設定（支払い方法・乗車区分）・管理者機能（ユーザー管理・CSVインポート）
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   X, 
@@ -43,6 +45,13 @@ import {
 import { ModalWrapper } from './ModalWrapper';
 import { CsvImportSection } from '@/components/dashboard/CsvImportSection';
 
+// モーダルプロパティ
+// stats: 月間統計（設定値を含む）
+// isAdmin: 管理者権限の有無
+// onUpdateStats: 設定更新時のコールバック
+// onImportRecords: CSVインポート時のコールバック
+// onClose: モーダル閉じるコールバック
+// onImpersonate: 管理者による代理操作時のコールバック
 interface SettingsModalProps { 
   stats: MonthlyStats; 
   isAdmin: boolean;
@@ -59,8 +68,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onImportRecords, 
   onClose, 
   onImpersonate 
-}) => {  const { logout } = useAuth();  const [activeTab, setActiveTab] = useState<'basic' | 'display' | 'admin'>('basic');
+}) => {  const { logout } = useAuth();
   
+  // タブ管理：'basic'（基本）→ 'display'（表示）→ 'admin'（管理者）
+  const [activeTab, setActiveTab] = useState<'basic' | 'display' | 'admin'>('basic');
+  
+  // 基本設定のフォーム状態
   const [shimebi, setShimebi] = useState(stats.shimebiDay.toString());
   const [businessStartHour, setBusinessStartHour] = useState(stats.businessStartHour ?? 9);
   const [monthlyGoalStr, setMonthlyGoalStr] = useState(stats.monthlyGoal.toLocaleString());
@@ -68,20 +81,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [dutyDays, setDutyDays] = useState<string[]>(stats.dutyDays || []);
   const [viewDate, setViewDate] = useState(new Date());
   
+  // 表示設定のフォーム状態
   const [enabledMethods, setEnabledMethods] = useState<PaymentMethod[]>(stats.enabledPaymentMethods || DEFAULT_PAYMENT_ORDER);
   const [customLabels, setCustomLabels] = useState<Record<string, string>>(stats.customPaymentLabels || {});
   const [userName, setUserName] = useState(stats.userName || "");
   const [enabledRideTypes, setEnabledRideTypes] = useState<RideType[]>(stats.enabledRideTypes || ALL_RIDE_TYPES);
 
+  // 稼働状況公開設定
   const [visibilityMode, setVisibilityMode] = useState<VisibilityMode>(stats.visibilityMode || 'PUBLIC');
   const [allowedViewers, setAllowedViewers] = useState<string[]>(stats.allowedViewers || []);
   const [otherUsers, setOtherUsers] = useState<{uid: string, name: string}[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
 
+  // フォロー中のユーザーと管理者用ユーザーリスト
   const [followingUsers, setFollowingUsers] = useState<string[]>(stats.followingUsers || []);
   const [adminUserList, setAdminUserList] = useState<any[]>([]);
 
   useEffect(() => {
+    // 他のユーザーリストを取得
     const fetchUsers = async () => {
       try {
         const querySnapshot = await getDocs(collection(db, "public_status"));
@@ -97,20 +114,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   }, [stats.uid]);
 
   useEffect(() => {
-      if (activeTab === 'admin' && isAdmin) {
-          const fetchAdminUsers = async () => {
-              try {
-                  const q = query(collection(db, "public_status"), orderBy("lastUpdated", "desc"));
-                  const snap = await getDocs(q);
-                  setAdminUserList(snap.docs.map(d => ({ uid: d.id, ...d.data() })));
-              } catch (e) {
-                  console.error("Admin fetch failed", e);
-              }
-          };
-          fetchAdminUsers();
-      }
+    // 管理者タブ時に全ユーザーリストを取得
+    if (activeTab === 'admin' && isAdmin) {
+      const fetchAdminUsers = async () => {
+        try {
+          const q = query(collection(db, "public_status"), orderBy("lastUpdated", "desc"));
+          const snap = await getDocs(q);
+          setAdminUserList(snap.docs.map(d => ({ uid: d.id, ...d.data() })));
+        } catch (e) {
+          console.error("Admin fetch failed", e);
+        }
+      };
+      fetchAdminUsers();
+    }
   }, [activeTab, isAdmin]);
 
+  // 請求期間内のカレンダー日付を計算
   const calendarDates = useMemo(() => {
     const sDay = parseInt(shimebi);
     const effectiveShimebi = isNaN(sDay) ? 20 : sDay;
@@ -124,38 +143,45 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     return dates;
   }, [viewDate, shimebi, businessStartHour]);
 
+  // カレンダー表示月を計算
   const displayScheduleMonth = useMemo(() => {
     if (calendarDates.length === 0) return '';
     const mid = calendarDates[Math.floor(calendarDates.length / 2)];
     return `${mid.getFullYear()} / ${String(mid.getMonth() + 1).padStart(2, '0')}`;
   }, [calendarDates]);
 
+  // カレンダー表示期間内の出勤日数
   const dutyCountInView = useMemo(() => {
     return calendarDates.filter(d => dutyDays.includes(formatDate(d))).length;
   }, [calendarDates, dutyDays]);
 
+  // 出勤日をトグル
   const toggleDutyDay = (dateStr: string) => {
     setDutyDays(prev => 
       prev.includes(dateStr) ? prev.filter(d => d !== dateStr) : [...prev, dateStr]
     );
   };
 
+  // 支払い方法の有効/無効をトグル
   const togglePaymentMethod = (m: PaymentMethod) => {
     setEnabledMethods(prev => 
       prev.includes(m) ? prev.filter(item => item !== m) : [...prev, m]
     );
   };
 
+  // 乗車区分の有効/無効をトグル
   const toggleRideType = (r: RideType) => {
     setEnabledRideTypes(prev => 
       prev.includes(r) ? prev.filter(i => i !== r) : [...prev, r]
     );
   };
 
+  // 支払い方法のカスタムラベルを変更
   const handleLabelChange = (method: string, value: string) => {
     setCustomLabels(prev => ({ ...prev, [method]: value }));
   };
 
+  // 支払い方法の順序を変更
   const moveMethod = (index: number, direction: 'up' | 'down') => {
     const newMethods = [...enabledMethods];
     const targetIndex = direction === 'up' ? index - 1 : index + 1;
@@ -166,22 +192,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setEnabledMethods(newMethods);
   };
 
+  // 公開許可ユーザーをトグル
   const toggleAllowedUser = (uid: string) => {
     setAllowedViewers(prev => 
       prev.includes(uid) ? prev.filter(id => id !== uid) : [...prev, uid]
     );
   };
 
+  // フォロー中のユーザーをトグル
   const toggleFollowingUser = (uid: string) => {
     setFollowingUsers(prev => 
       prev.includes(uid) ? prev.filter(id => id !== uid) : [...prev, uid]
     );
   };
 
+  // ユーザー検索
   const filteredUsers = otherUsers.filter(u => 
     u.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  // 設定を保存
   const saveSettings = () => {
     const sDay = parseInt(shimebi);
     onUpdateStats({
@@ -201,11 +231,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     onClose();
   };
 
+  // 今日の営業日
   const todayStr = getBusinessDate(Date.now(), businessStartHour);
 
   return (
     <ModalWrapper onClose={onClose}>
       <div className="space-y-6 pb-6">
+        {/* ヘッダー */}
         <div className="flex justify-between items-center">
           <h3 className="text-xl font-black text-white flex items-center gap-2">
              <Settings className="w-6 h-6 text-gray-400" /> 設定
@@ -215,6 +247,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </button>
         </div>
 
+        {/* タブナビゲーション */}
         <div className="flex gap-2 bg-gray-900/50 p-1 rounded-xl">
             <button onClick={() => setActiveTab('basic')} className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'basic' ? 'bg-gray-700 text-white shadow' : 'text-gray-500'}`}>基本</button>
             <button onClick={() => setActiveTab('display')} className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'display' ? 'bg-gray-700 text-white shadow' : 'text-gray-500'}`}>表示</button>
@@ -224,8 +257,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         </div>
 
         <div className="overflow-y-auto max-h-[60vh] space-y-6 pr-1 custom-scrollbar">
+            {/* === 基本タブ === */}
             {activeTab === 'basic' && (
                 <div className="space-y-6 animate-in fade-in slide-in-from-right-2 duration-200">
+                    {/* ユーザー名 */}
                     <div className="bg-gray-900/50 p-5 rounded-3xl border border-gray-800 space-y-3">
                         <label className="text-sm font-bold text-gray-400 block uppercase tracking-widest flex items-center gap-2">
                             <User className="w-4 h-4"/> ユーザー名
@@ -239,9 +274,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         />
                     </div>
 
+                    {/* 目標売上の設定 */}
                     <div className="bg-gray-900/50 p-5 rounded-3xl border border-gray-800 space-y-5">
                         <label className="text-lg font-black text-gray-500 uppercase tracking-widest block">目標売上の設定</label>
                         <div className="grid grid-cols-1 gap-5">
+                            {/* 月間目標 */}
                             <div>
                                 <label className="text-sm font-bold text-gray-400 mb-2 block uppercase tracking-widest">月間目標</label>
                                 <div className="flex items-center gap-3">
@@ -255,6 +292,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                     />
                                 </div>
                             </div>
+                            {/* 日別デフォルト目標 */}
                             <div>
                                 <label className="text-sm font-bold text-gray-400 mb-2 block uppercase tracking-widest">日別デフォルト目標</label>
                                 <div className="flex items-center gap-3">
@@ -271,6 +309,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         </div>
                     </div>
 
+                    {/* 締め日・切替時間 */}
                     <div className="grid grid-cols-2 gap-3">
                         <div className="bg-gray-900/50 p-4 rounded-2xl border border-gray-800 relative">
                             <label className="text-lg font-bold text-gray-400 mb-2 block uppercase tracking-widest">締め日</label>
@@ -305,6 +344,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         </div>
                     </div>
 
+                    {/* 出勤予定カレンダー */}
                     <div className="bg-gray-900/50 p-5 rounded-3xl border border-gray-800 shadow-inner">
                         <div className="flex flex-col mb-4">
                             <div className="flex justify-between items-center">
@@ -322,11 +362,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             </div>
                         </div>
                         
+                        {/* カレンダーグリッド */}
                         <div className="grid grid-cols-7 gap-2">
+                            {/* 曜日ヘッダー */}
                             {['日', '月', '火', '水', '木', '金', '土'].map(w => (
                                 <div key={w} className="text-xl text-center font-black text-gray-500 mb-2">{w}</div>
                             ))}
+                            {/* 空白セル（前の月の日付まで） */}
                             {Array.from({ length: calendarDates[0]?.getDay() || 0 }).map((_, i) => <div key={i} />)}
+                            {/* 日付セル */}
                             {calendarDates.map(date => {
                                 const dateStr = formatDate(date);
                                 const isDuty = dutyDays.includes(dateStr);
@@ -348,6 +392,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
             )}
 
+            {/* === 表示タブ === */}
             {activeTab === 'display' && (
                 <div className="space-y-6 animate-in fade-in slide-in-from-right-2 duration-200">
                     <div className="bg-gray-900/50 p-5 rounded-3xl border border-gray-800 space-y-4">
@@ -497,6 +542,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
             )}
 
+            {/* === 管理者タブ === */}
             {activeTab === 'admin' && isAdmin && (
                 <div className="space-y-6 animate-in fade-in slide-in-from-right-2 duration-200">
                     <div className="bg-purple-900/20 p-4 rounded-2xl border border-purple-500/30">

@@ -1,3 +1,4 @@
+// 管理者ダッシュボードページコンポーネント - ユーザー管理
 import React, { useState, useEffect } from 'react';
 import { collection, getDocs, doc, updateDoc, query } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';   // ★追加

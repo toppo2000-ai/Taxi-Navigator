@@ -1,12 +1,15 @@
 import React from 'react';
 import { Settings, Shield } from 'lucide-react';
 import naviChibiImage from '@/assets/navi-chibi.png';
+
+// ヘッダーのプロップスのインターフェース
 interface HeaderProps {
-  isAdmin: boolean;
-  onViewSettings: () => void;
-  onViewAdmin: () => void;
+  isAdmin: boolean; // 管理者権限があるかどうか
+  onViewSettings: () => void; // 設定表示のコールバック
+  onViewAdmin: () => void; // 管理画面表示のコールバック
 }
 
+// ヘッダーコンポーネント
 export const Header: React.FC<HeaderProps> = ({ isAdmin, onViewSettings, onViewAdmin }) => (
   <header className="bg-[#1A222C] border-b border-gray-800 p-4 safe-top sticky top-0 z-30 overflow-hidden">
     <div className="flex justify-between items-center relative z-10">
@@ -38,6 +41,7 @@ export const Header: React.FC<HeaderProps> = ({ isAdmin, onViewSettings, onViewA
 
       <div className="flex items-center gap-3">
         {isAdmin && (
+          // 管理者メニューボタン
           <button 
             onClick={onViewAdmin} 
             className="p-2 bg-purple-900/50 border border-purple-500/50 rounded-full text-purple-400 hover:text-white transition-all active:scale-90"
@@ -48,6 +52,7 @@ export const Header: React.FC<HeaderProps> = ({ isAdmin, onViewSettings, onViewA
           </button>
         )}
 
+        {/* 設定ボタン */}
         <button 
           onClick={onViewSettings} 
           className="p-2 bg-gray-800 rounded-full text-gray-400 hover:text-white transition-all active:scale-90 border border-gray-700"

@@ -1,3 +1,4 @@
+// フルスクリーン時計コンポーネント - シフト中の時刻表示
 import React, { useState, useEffect, useMemo } from 'react';
 import { Watch, Clock, Monitor } from 'lucide-react';
 

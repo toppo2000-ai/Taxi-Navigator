@@ -1,3 +1,4 @@
+// 未認可ページコンポーネント - ユーザー認可待ちの表示
 import React from 'react';
 import { LogOut, ShieldAlert, MessageCircle, User } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';

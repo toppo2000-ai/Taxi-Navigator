@@ -5,8 +5,10 @@ import { db } from '@/services/firebase';
 import { Shift, SalesRecord, MonthlyStats, BreakState } from '@/types';
 import { getBusinessDate, getBillingPeriod, formatDate, calculatePeriodStats } from '@/utils';
 
+// シフトデータを検証・正規化する
 export const sanitizeShift = (rawShift: any): Shift | null => {
   if (!rawShift) return null;
+  // 安全な数値変換 (デフォルト値使用)
   const safeNum = (v: any, def: number) => (Number.isFinite(Number(v)) ? Number(v) : def);
   
   return {
@@ -29,16 +31,19 @@ export const sanitizeShift = (rawShift: any): Shift | null => {
   };
 };
 
+// シフト情報と休憩状態を管理するカスタムフック
 export const useShift = (user: User | null, targetUid: string | undefined, stats: MonthlyStats, history: SalesRecord[]) => {
   const [shift, setShift] = useState<Shift | null>(null);
   const [breakState, setBreakState] = useState<BreakState>({ isActive: false, startTime: null });
 
+  // シフトと休憩状態をリアルタイム監視
   useEffect(() => {
     if (!targetUid) {
       setShift(null);
       return;
     }
 
+    // ゲストユーザーの場合はローカルストレージから読み込み
     if (targetUid === 'guest-user') {
       const guestData = localStorage.getItem('taxi_navigator_guest_data');
       if (guestData) {
@@ -49,6 +54,7 @@ export const useShift = (user: User | null, targetUid: string | undefined, stats
       return;
     }
 
+    // 現在のシフト情報をリアルタイム監視
     const unsubShift = onSnapshot(doc(db, 'users', targetUid, 'current_data', 'current_shift'), (docSnap) => {
       if (docSnap.exists()) {
         setShift(sanitizeShift(docSnap.data()));
@@ -57,6 +63,7 @@ export const useShift = (user: User | null, targetUid: string | undefined, stats
       }
     });
 
+    // 休憩状態をリアルタイム監視
     const unsubBreak = onSnapshot(doc(db, 'users', targetUid, 'current_data', 'break_state'), (docSnap) => {
       if (docSnap.exists()) {
         setBreakState(docSnap.data() as BreakState);
@@ -65,19 +72,23 @@ export const useShift = (user: User | null, targetUid: string | undefined, stats
       }
     });
 
+    // クリーンアップ
     return () => {
       unsubShift();
       unsubBreak();
     };
   }, [targetUid]);
 
+  // ステータスを公開データベースにブロードキャスト
   const broadcastStatus = useCallback(async (
     currentStatus: 'active' | 'break' | 'riding' | 'completed' | 'offline'
   ) => {
     if (!user || !stats.userName) return;
     
     try {
+      // 営業開始時刻を取得
       const startHour = stats.businessStartHour ?? 9;
+      // 請求期間を計算
       const { start, end } = getBillingPeriod(new Date(), stats.shimebiDay, startHour);
       const adjustedEnd = new Date(end);
       if (stats.shimebiDay !== 0) {
@@ -87,14 +98,17 @@ export const useShift = (user: User | null, targetUid: string | undefined, stats
       const startStr = formatDate(start);
       const endStr = formatDate(adjustedEnd);
       
+      // 月間売上を計算
       const { totalSales: totalMonthlySales } = calculatePeriodStats(stats, history, shift);
 
+      // 現在のシフトの売上を計算
       const currentShiftSales = shift 
         ? shift.records.reduce((sum, r) => sum + r.amount, 0) 
         : 0;
             allRecords.forEach(r => uniqueRecordsMap.set(r.id, r));
       const uniqueRecords = Array.from(uniqueRecordsMap.values()) as SalesRecord[];
 
+      // 月別のデータを集計
       const monthsData: Record<string, any> = {};
       uniqueRecords.forEach(record => {
           const period = getBillingPeriod(new Date(record.timestamp), stats.shimebiDay, startHour);
@@ -117,8 +131,10 @@ export const useShift = (user: User | null, targetUid: string | undefined, stats
           monthsData[sortKey].sales += record.amount;
       });
 
+      // 現在のシフト記録を取得
       const activeRecords = shift ? shift.records : [];
 
+      // ステータスデータを構築
       const statusData = {
           uid: user.uid,
           name: stats.userName,
@@ -134,6 +150,7 @@ export const useShift = (user: User | null, targetUid: string | undefined, stats
       };
 
       if (shift) {
+        // シフト稼働中の場合
         const count = shift.records.length;
         const dispatchCount = shift.records.filter(r => 
           r.rideType !== 'FLOW' && r.rideType !== 'WAIT'
@@ -149,12 +166,14 @@ export const useShift = (user: User | null, targetUid: string | undefined, stats
           dispatchCount: dispatchCount,
         }, { merge: true });
       } else {
+        // シフト終了時
         await setDoc(doc(db, "public_status", user.uid), {
           ...statusData,
           status: 'offline',
         }, { merge: true });
       }
     } catch (e) {
+      // ブロードキャスト処理のエラーをログ出力
       console.error("Broadcast failed:", e);
     }
   }, [user, shift, history, stats]);

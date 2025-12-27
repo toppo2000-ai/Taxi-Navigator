@@ -1,3 +1,4 @@
+// モーダルコンポーネント群のエクスポート
 export * from './modals/ModalWrapper';
 export * from './modals/KeypadView';
 export * from './modals/ShiftEditModal';

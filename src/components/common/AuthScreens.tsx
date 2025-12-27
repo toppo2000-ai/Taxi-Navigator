@@ -1,3 +1,4 @@
+// 認証画面コンポーネント群 - ログイン・オンボーディング画面
 import React, { useState } from 'react';
 import { Loader2, Car, User as UserIcon, ArrowRight } from 'lucide-react';
 import { signInWithRedirect, signInWithPopup } from 'firebase/auth';

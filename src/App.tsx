@@ -49,26 +49,29 @@ import { Navigation } from '@/components/common/Navigation';
 import { SplashScreen, LoginScreen, OnboardingScreen } from '@/components/common/AuthScreens';
 import { Shield } from 'lucide-react';
 
+// メインアプリケーションコンポーネント
 export default function App() {
-  // --- Hooks ---
+  // 認証とユーザーデータの取得
   const { user, isAuthChecking, userProfile, loginAsGuest } = useAuth();
-  const [viewingUid, setViewingUid] = useState<string | null>(null);
-  const targetUid = viewingUid || user?.uid;
+  const [viewingUid, setViewingUid] = useState<string | null>(null); // 代理操作中のユーザーID
+  const targetUid = viewingUid || user?.uid; // 対象ユーザーのID
 
-  const { monthlyStats, setMonthlyStats } = useStats(targetUid);
-  const { history, setHistory, dayMetadata, setDayMetadata } = useHistory(targetUid);
-  const { shift, setShift, breakState, setBreakState, broadcastStatus } = useShift(user, targetUid, monthlyStats, history);
+  // ユーザーデータの管理
+  const { monthlyStats, setMonthlyStats } = useStats(targetUid); // 月間統計
+  const { history, setHistory, dayMetadata, setDayMetadata } = useHistory(targetUid); // 売上履歴
+  const { shift, setShift, breakState, setBreakState, broadcastStatus } = useShift(user, targetUid, monthlyStats, history); // シフト情報
 
-  // --- UI States ---
-  const [appInitLoading, setAppInitLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'home' | 'history' | 'analysis' | 'guide' | 'debug'>('home');
-  const [targetHistoryDate, setTargetHistoryDate] = useState<string | Date | null>(null);
-  const [isAdminMode, setIsAdminMode] = useState(false);
-  const [recordModalState, setRecordModalState] = useState<{ open: boolean; initialData?: Partial<SalesRecord> }>({ open: false });
-  const [isDailyReportOpen, setIsDailyReportOpen] = useState(false);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [isShiftEditOpen, setIsShiftEditOpen] = useState(false);
+  // UI状態の管理
+  const [appInitLoading, setAppInitLoading] = useState(true); // アプリ初期化中かどうか
+  const [activeTab, setActiveTab] = useState<'home' | 'history' | 'analysis' | 'guide' | 'debug'>('home'); // アクティブなタブ
+  const [targetHistoryDate, setTargetHistoryDate] = useState<string | Date | null>(null); // 履歴表示対象の日付
+  const [isAdminMode, setIsAdminMode] = useState(false); // 管理画面表示中かどうか
+  const [recordModalState, setRecordModalState] = useState<{ open: boolean; initialData?: Partial<SalesRecord> }>({ open: false }); // 記録モーダルの状態
+  const [isDailyReportOpen, setIsDailyReportOpen] = useState(false); // 日報モーダルの状態
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false); // 設定モーダルの状態
+  const [isShiftEditOpen, setIsShiftEditOpen] = useState(false); // シフト編集モーダルの状態
 
+  // アプリ初期化タイマー
   useEffect(() => {
     const timer = setTimeout(() => setAppInitLoading(false), 1200);
     return () => clearTimeout(timer);
@@ -102,6 +105,7 @@ export default function App() {
     }
   };
 
+  // シフト開始時の処理 - 新しいシフトを作成してFirestoreに保存
   const handleStart = (goal: number, hours: number) => {
     if (!user) return;
     const startHour = monthlyStats.businessStartHour ?? 9;
@@ -124,6 +128,7 @@ export default function App() {
     window.scrollTo(0, 0);
   };
 
+  // シフト完了時の処理 - 営業記録を保存して日誌を閉じる
   const finalizeShift = () => {
     if (shift && user) {
       const newHistory = [...history, ...shift.records].sort((a, b) => a.timestamp - b.timestamp);
@@ -140,6 +145,7 @@ export default function App() {
     setIsDailyReportOpen(false);
   };
 
+  // 営業記録の保存処理 - 新規作成または編集時のデータ永続化
   const handleSaveRecord = useCallback(async (...args: any[]) => {
     if (!user) return;
     const [amt, toll, method, ride, nonCash, timestamp, pickup, dropoff, pickupCoords, dropoffCoords, pMale, pFemale, remarks, isBadCustomer] = args;
@@ -177,6 +183,7 @@ export default function App() {
     setRecordModalState({ open: false });
   }, [shift, history, recordModalState.initialData, monthlyStats, user]);
 
+  // 営業記録の削除処理 - 現在のシフトまたは過去の履歴から削除
   const handleDeleteRecord = useCallback(() => {
     if (!user || !recordModalState.initialData?.id) return;
     const id = recordModalState.initialData.id;
@@ -188,6 +195,7 @@ export default function App() {
     setRecordModalState({ open: false });
   }, [recordModalState.initialData, shift, history, user]);
 
+  // 月次統計情報の更新処理 - 目標金額や営業開始時間などを更新
   const handleUpdateMonthlyStats = (newStats: Partial<MonthlyStats>) => {
     setMonthlyStats(prev => {
       const updated = { ...prev, ...newStats };
@@ -199,6 +207,7 @@ export default function App() {
     });
   };
 
+  // ゲストログイン処理 - 認証なしで一時的にアプリを使用可能にする
   const handleGuestLogin = () => {
     loginAsGuest();
     setMonthlyStats(prev => ({ ...prev, userName: 'ゲストユーザー' }));

@@ -1,7 +1,7 @@
-// ホテル定義
+// ホテル定義のインターフェース
 export interface HotelDef {
-    name: string;
-    keywords: string[];
+    name: string; // ホテル名
+    keywords: string[]; // 検索キーワード
 }
 
 // ホテルリスト (必要に応じて追加・編集してください)

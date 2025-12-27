@@ -3,9 +3,10 @@ import { collection, onSnapshot, query, orderBy, limit } from 'firebase/firestor
 import { db } from '@/services/firebase';
 import { SalesRecord, DayMetadata } from '@/types';
 
+// 売上履歴と日付ごとのメタデータを管理するカスタムフック
 export const useHistory = (targetUid: string | undefined) => {
-  const [history, setHistory] = useState<SalesRecord[]>([]);
-  const [dayMetadata, setDayMetadata] = useState<Record<string, DayMetadata>>({});
+  const [history, setHistory] = useState<SalesRecord[]>([]); // 売上記録のリスト
+  const [dayMetadata, setDayMetadata] = useState<Record<string, DayMetadata>>({}); // 日付ごとのメタデータ
 
   useEffect(() => {
     if (!targetUid) {
@@ -14,6 +15,7 @@ export const useHistory = (targetUid: string | undefined) => {
       return;
     }
 
+    // ゲストユーザーの場合はローカルストレージから読み込み
     if (targetUid === 'guest-user') {
       const guestData = localStorage.getItem('taxi_navigator_guest_data');
       if (guestData) {
@@ -24,6 +26,7 @@ export const useHistory = (targetUid: string | undefined) => {
       return;
     }
 
+    // 履歴データをリアルタイム監視 (最新500件)
     const historyQuery = query(
       collection(db, 'users', targetUid, 'history'),
       orderBy('timestamp', 'desc'),
@@ -35,6 +38,7 @@ export const useHistory = (targetUid: string | undefined) => {
       setHistory(records);
     });
 
+    // 日付メタデータをリアルタイム監視
     const unsubMetadata = onSnapshot(collection(db, 'users', targetUid, 'day_metadata'), (snapshot) => {
       const metadata: Record<string, DayMetadata> = {};
       snapshot.docs.forEach(doc => {
@@ -43,6 +47,7 @@ export const useHistory = (targetUid: string | undefined) => {
       setDayMetadata(metadata);
     });
 
+    // クリーンアップ
     return () => {
       unsubHistory();
       unsubMetadata();

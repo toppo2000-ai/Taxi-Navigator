@@ -1,3 +1,4 @@
+// ネオンスタイルプログレスバーコンポーネント
 import React from 'react';
 
 export const NeonProgressBar: React.FC<{ progress: number, color: 'amber' | 'blue' }> = ({ progress, color }) => {

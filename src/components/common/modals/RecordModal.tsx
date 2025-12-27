@@ -1,3 +1,5 @@
+// 記録モーダルコンポーネント - 売上記録の追加・編集
+// 2段階入力（金額 → 詳細）で売上記録を作成・編集、位置情報・時刻の手動調整に対応
 import React, { useState, useEffect, useCallback } from 'react';
 import { 
   X, 
@@ -26,6 +28,12 @@ import { ModalWrapper } from './ModalWrapper';
 import { KeypadView } from './KeypadView';
 import { useGeolocation } from '@/hooks/useGeolocation';
 
+// モーダルプロパティ
+// stats: 月間統計（支払い方法などの設定を含む）
+// onSave: 記録保存時のコールバック
+// onDelete: 記録削除時のコールバック（編集時のみ）
+// onClose: モーダル閉じるコールバック
+// editingRecord: 編集中の記録（なければ新規作成）
 interface RecordModalProps {
   stats: MonthlyStats;
   onSave: (record: Omit<SalesRecord, 'id'>) => void;
@@ -41,7 +49,10 @@ export const RecordModal: React.FC<RecordModalProps> = ({
   onClose, 
   editingRecord 
 }) => {
+  // ステップ管理：'amount'（金額入力）→ 'details'（詳細設定）
   const [step, setStep] = useState<'amount' | 'details'>(editingRecord ? 'details' : 'amount');
+  
+  // フォーム状態
   const [amountStr, setAmountStr] = useState(editingRecord ? editingRecord.amount.toLocaleString() : "");
   const [tollStr, setTollStr] = useState(editingRecord?.toll ? editingRecord.toll.toLocaleString() : "0");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(editingRecord?.paymentMethod || stats.enabledPaymentMethods[0] || 'CASH');
@@ -49,9 +60,11 @@ export const RecordModal: React.FC<RecordModalProps> = ({
   const { location, error: locationError, isLocating, getCurrentLocation, setLocation } = useGeolocation();
   const [timestamp, setTimestamp] = useState<number>(editingRecord?.timestamp || Date.now());
 
+  // 営業日を計算（営業開始時間に基づく）
   const businessDate = getBusinessDate(timestamp, stats.businessStartHour);
 
   useEffect(() => {
+    // 編集時は既存のロケーション使用、新規時は自動取得
     if (editingRecord?.location) {
       setLocation(editingRecord.location);
     } else if (!editingRecord) {
@@ -59,6 +72,7 @@ export const RecordModal: React.FC<RecordModalProps> = ({
     }
   }, [editingRecord, getCurrentLocation, setLocation]);
 
+  // 保存処理：金額バリデーション後に記録を保存
   const handleSave = () => {
     const amount = fromCommaSeparated(amountStr);
     const toll = fromCommaSeparated(tollStr);
@@ -76,6 +90,7 @@ export const RecordModal: React.FC<RecordModalProps> = ({
     onClose();
   };
 
+  // 時刻調整（±10分単位）
   const adjustTime = (minutes: number) => {
     setTimestamp(prev => prev + minutes * 60000);
   };
@@ -83,6 +98,7 @@ export const RecordModal: React.FC<RecordModalProps> = ({
   return (
     <ModalWrapper onClose={onClose}>
       <div className="space-y-6 pb-6">
+        {/* ヘッダー */}
         <div className="flex justify-between items-center">
           <h3 className="text-xl font-black text-white flex items-center gap-2">
             {editingRecord ? '売上を編集' : '売上を入力'}
@@ -92,8 +108,10 @@ export const RecordModal: React.FC<RecordModalProps> = ({
           </button>
         </div>
 
+        {/* ステップ1: 金額入力 */}
         {step === 'amount' ? (
           <div className="space-y-6 animate-in fade-in slide-in-from-right-2 duration-200">
+            {/* 金額表示エリア */}
             <div className="bg-gray-900/50 p-6 rounded-3xl border border-gray-800">
               <label className="text-sm font-bold text-gray-500 mb-2 block uppercase tracking-widest">売上金額</label>
               <div className="flex items-center gap-4">
@@ -108,12 +126,14 @@ export const RecordModal: React.FC<RecordModalProps> = ({
               </div>
             </div>
 
+            {/* キーパッド */}
             <KeypadView 
               value={amountStr} 
               onChange={setAmountStr} 
               onComplete={() => setStep('details')} 
             />
 
+            {/* 次へボタン */}
             <button 
               onClick={() => setStep('details')}
               disabled={!amountStr || amountStr === "0"}
@@ -123,7 +143,9 @@ export const RecordModal: React.FC<RecordModalProps> = ({
             </button>
           </div>
         ) : (
+          /* ステップ2: 詳細設定 */
           <div className="space-y-6 animate-in fade-in slide-in-from-right-2 duration-200">
+            {/* 金額確認・修正 */}
             <div className="flex items-center justify-between bg-gray-900/50 p-4 rounded-2xl border border-gray-800">
               <button onClick={() => setStep('amount')} className="flex items-center gap-2 text-blue-400 font-bold">
                 <ChevronLeft className="w-5 h-5" /> 金額修正
@@ -134,6 +156,7 @@ export const RecordModal: React.FC<RecordModalProps> = ({
               </div>
             </div>
 
+            {/* 支払い方法選択 */}
             <div className="bg-gray-900/50 p-5 rounded-3xl border border-gray-800 space-y-4">
               <label className="text-sm font-bold text-gray-500 block uppercase tracking-widest flex items-center gap-2">
                 <CreditCard className="w-4 h-4" /> 支払い方法
@@ -155,6 +178,7 @@ export const RecordModal: React.FC<RecordModalProps> = ({
               </div>
             </div>
 
+            {/* 乗車区分選択 */}
             <div className="bg-gray-900/50 p-5 rounded-3xl border border-gray-800 space-y-4">
               <label className="text-sm font-bold text-gray-500 block uppercase tracking-widest flex items-center gap-2">
                 <Car className="w-4 h-4" /> 乗車区分
@@ -176,6 +200,7 @@ export const RecordModal: React.FC<RecordModalProps> = ({
               </div>
             </div>
 
+            {/* 高速代入力 */}
             <div className="bg-gray-900/50 p-5 rounded-3xl border border-gray-800 space-y-4">
               <label className="text-sm font-bold text-gray-500 block uppercase tracking-widest flex items-center gap-2">
                 <Navigation className="w-4 h-4" /> 高速代
@@ -192,6 +217,7 @@ export const RecordModal: React.FC<RecordModalProps> = ({
               </div>
             </div>
 
+            {/* 時刻調整 */}
             <div className="bg-gray-900/50 p-5 rounded-3xl border border-gray-800 space-y-4">
               <div className="flex justify-between items-center">
                 <label className="text-sm font-bold text-gray-500 block uppercase tracking-widest flex items-center gap-2">
@@ -210,6 +236,7 @@ export const RecordModal: React.FC<RecordModalProps> = ({
               </div>
             </div>
 
+            {/* 位置情報 */}
             <div className="bg-gray-900/50 p-5 rounded-3xl border border-gray-800 space-y-4">
               <div className="flex justify-between items-center">
                 <label className="text-sm font-bold text-gray-500 block uppercase tracking-widest flex items-center gap-2">
@@ -227,6 +254,7 @@ export const RecordModal: React.FC<RecordModalProps> = ({
               </div>
               
               {location ? (
+                // 位置情報取得済み
                 <div className="flex items-center gap-3 bg-green-500/10 border border-green-500/30 p-3 rounded-2xl">
                   <div className="p-2 bg-green-500 rounded-full text-black">
                     <Check className="w-4 h-4" />
@@ -237,6 +265,7 @@ export const RecordModal: React.FC<RecordModalProps> = ({
                   </div>
                 </div>
               ) : locationError ? (
+                // エラー表示
                 <div className="flex items-center gap-3 bg-red-500/10 border border-red-500/30 p-3 rounded-2xl">
                   <div className="p-2 bg-red-500 rounded-full text-white">
                     <AlertCircle className="w-4 h-4" />
@@ -244,12 +273,14 @@ export const RecordModal: React.FC<RecordModalProps> = ({
                   <p className="text-xs font-bold text-red-400">{locationError}</p>
                 </div>
               ) : (
+                // 位置情報なし
                 <div className="text-center py-4 border-2 border-dashed border-gray-800 rounded-2xl">
                   <p className="text-xs font-bold text-gray-600">位置情報なし</p>
                 </div>
               )}
             </div>
 
+            {/* 削除・保存ボタン */}
             <div className="flex gap-3">
               {editingRecord && onDelete && (
                 <button 

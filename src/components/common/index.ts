@@ -1,3 +1,4 @@
+// 共通コンポーネントのエクスポート
 export * from './PaymentBreakdownList';
 export * from './SalesRecordCard';
 export * from './ReportSummaryView';

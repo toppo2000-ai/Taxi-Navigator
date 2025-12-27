@@ -3,6 +3,7 @@ import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/services/firebase';
 import { MonthlyStats, DEFAULT_PAYMENT_ORDER, ALL_RIDE_TYPES } from '@/types';
 
+// 月間統計情報を管理するカスタムフック
 export const useStats = (targetUid: string | undefined) => {
   const [monthlyStats, setMonthlyStats] = useState<MonthlyStats>({
     monthLabel: '',
@@ -25,6 +26,7 @@ export const useStats = (targetUid: string | undefined) => {
   useEffect(() => {
     if (!targetUid) return;
 
+    // ゲストユーザーの場合はローカルストレージから読み込み
     if (targetUid === 'guest-user') {
       const guestData = localStorage.getItem('taxi_navigator_guest_data');
       if (guestData) {
@@ -36,12 +38,14 @@ export const useStats = (targetUid: string | undefined) => {
       return;
     }
 
+    // 月間統計をリアルタイム監視
     const unsubStats = onSnapshot(doc(db, 'users', targetUid, 'settings', 'monthly_stats'), (docSnap) => {
       if (docSnap.exists()) {
         setMonthlyStats(prev => ({ ...prev, ...docSnap.data() }));
       }
     });
 
+    // クリーンアップ
     return () => unsubStats();
   }, [targetUid]);
 

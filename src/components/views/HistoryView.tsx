@@ -1,4 +1,6 @@
+// 売上履歴表示コンポーネント - 日別記録の閲覧・編集機能
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+// UIアイコンのインポート
 import { 
   ArrowLeft,
   Target,
@@ -15,10 +17,13 @@ import {
   ChevronUp,
   Wallet
 } from 'lucide-react';
+// Firebase関連のインポート
 import { collection, onSnapshot, query, doc, orderBy, limit } from 'firebase/firestore'; 
 import { db } from '@/services/firebase'; 
+// カスタムフックと型のインポート
 import { useAuth } from '@/hooks/useAuth';
 import { SalesRecord, PaymentMethod, DayMetadata, MonthlyStats } from '@/types';
+// ユーティリティ関数のインポート
 import { 
   formatBusinessTime,
   formatCurrency, 
@@ -31,34 +36,38 @@ import {
   getPaymentCounts
 } from '@/utils';
 
+// 共通コンポーネントのインポート
 import { PaymentBreakdownList } from '@/components/common/PaymentBreakdownList';
 import { SalesRecordCard } from '@/components/common/SalesRecordCard';
 import { ReportSummaryView } from '@/components/common/ReportSummaryView';
 
-// 管理者メールアドレス
+// 管理者権限を持つメールアドレスのリスト
 const ADMIN_EMAILS = [
   "toppo2000@gmail.com", 
   "admin-user@gmail.com"
 ];
 
-// ヘルパー: 配車かどうか
+// ヘルパー関数: 記録が「配車」扱い（流しや待ち以外）かどうかを判定
 const isDispatch = (r: SalesRecord) => r.rideType !== 'FLOW' && r.rideType !== 'WAIT';
 
 // --- ★共通コンポーネント: Daily Detail View (日報詳細) ---
+// 特定の日の売上明細を表示し、メモや属性の編集を行うコンポーネント
 export const DailyDetailView: React.FC<{
-  date: string,
-  records: SalesRecord[],
-  meta: DayMetadata,
-  customLabels: Record<string, string>,
-  businessStartHour: number,
-  onBack: () => void,
-  isMe: boolean, 
-  onUpdateMetadata?: (date: string, meta: Partial<DayMetadata>) => void,
-  onEditRecord?: (rec: SalesRecord) => void
+  date: string, // 表示対象の日付 (YYYY/MM/DD)
+  records: SalesRecord[], // その日の売上記録一覧
+  meta: DayMetadata, // その日のメタデータ（メモ、帰属月など）
+  customLabels: Record<string, string>, // ユーザー設定の支払ラベル
+  businessStartHour: number, // 営業開始時間
+  onBack: () => void, // 戻るボタン押下時のコールバック
+  isMe: boolean, // 自分のデータかどうか（編集権限の判定に使用）
+  onUpdateMetadata?: (date: string, meta: Partial<DayMetadata>) => void, // メタデータ更新時のコールバック
+  onEditRecord?: (rec: SalesRecord) => void // 記録編集時のコールバック
 }> = ({ date, records, meta, customLabels, businessStartHour, onBack, isMe, onUpdateMetadata, onEditRecord }) => {
+  // 詳細表示モードと並び順（昇順/降順）の状態管理
   const [isDetailed, setIsDetailed] = useState(false);
   const [isDetailReversed, setIsDetailReversed] = useState(true);
 
+  // 並び順設定に基づいて記録をソート
   const sortedRecords = isDetailReversed 
     ? [...records].sort((a,b)=>b.timestamp-a.timestamp) 
     : [...records].sort((a,b)=>a.timestamp-b.timestamp);
@@ -128,36 +137,42 @@ export const DailyDetailView: React.FC<{
 };
 
 // --- ★Export: Monthly Dashboard View (月間ダッシュボード) ---
+// 月間および年間の売上統計、実績表を表示するコンポーネント
 export const MonthlyDashboard: React.FC<{
-    displayMonth: Date,
-    setCurrentMonth: (d: Date) => void,
-    monthData: SalesRecord[],
-    dailyGroups: [string, SalesRecord[]][],
-    customLabels: Record<string, string>,
-    onSelectDay: (date: string) => void,
-    isMe: boolean,
-    userName?: string,
-    history: SalesRecord[], 
-    shimebiDay: number,
-    businessStartHour: number,
-    showSummary?: boolean
+    displayMonth: Date, // 表示対象の月
+    setCurrentMonth: (d: Date) => void, // 表示月を変更する関数
+    monthData: SalesRecord[], // 選択された月（締日考慮）の売上データ
+    dailyGroups: [string, SalesRecord[]][], // 日ごとのグループ化データ
+    customLabels: Record<string, string>, // カスタム支払ラベル
+    onSelectDay: (date: string) => void, // 日付選択時のコールバック
+    isMe: boolean, // 自分のデータかどうか
+    userName?: string, // 表示対象のユーザー名
+    history: SalesRecord[], // 全履歴データ
+    shimebiDay: number, // 締日設定
+    businessStartHour: number, // 営業開始時間
+    showSummary?: boolean // サマリー（合計金額など）を表示するかどうか
 }> = ({ displayMonth, setCurrentMonth, monthData, dailyGroups, customLabels, onSelectDay, isMe, userName, history, shimebiDay, businessStartHour, showSummary = false }) => {
+    // 履歴リストの並び順状態
     const [isHistoryReversed, setIsHistoryReversed] = useState(true);
     const displayMonthStr = `${displayMonth.getFullYear()}年 ${displayMonth.getMonth() + 1}月度`;
     
+    // 表示モード（月間実績表 / 年間推移表）とテーブルの開閉状態
     const [viewMode, setViewMode] = useState<'monthly' | 'yearly'>('monthly');
     const [tableTargetDate, setTableTargetDate] = useState(new Date());
     const [isTableOpen, setIsTableOpen] = useState(false);
 
+    // 表示月が変更されたらテーブルの対象日付も同期する
     useEffect(() => {
         setTableTargetDate(new Date(displayMonth));
     }, [displayMonth]);
 
+    // 指定された日付が含まれる請求月の基準日を取得
     const getBillingMonthDate = (date: Date) => {
         const { end } = getBillingPeriod(date, shimebiDay, businessStartHour);
         return end;
     };
 
+    // テーブルの表示期間を前後に移動
     const shiftPeriod = (delta: number) => {
         const newDate = new Date(tableTargetDate);
         if (viewMode === 'monthly') {
@@ -168,6 +183,7 @@ export const MonthlyDashboard: React.FC<{
         setTableTargetDate(newDate);
     };
 
+    // 年間推移データの計算
     const yearlyData = useMemo(() => {
         const baseYearDate = getBillingMonthDate(tableTargetDate);
         const currentYear = baseYearDate.getFullYear();
@@ -176,33 +192,59 @@ export const MonthlyDashboard: React.FC<{
         
         const safeHistory = history || [];
 
+        // 1月から12月までの各月のデータを集計
         for (let m = 0; m < 12; m++) {
           const monthRefDate = new Date(currentYear, m, shimebiDay === 0 ? 28 : shimebiDay);
           const { start, end } = getBillingPeriod(monthRefDate, shimebiDay, businessStartHour);
           const adjustedEnd = new Date(end);
           if (shimebiDay !== 0) adjustedEnd.setDate(shimebiDay);
           const startStr = formatDate(start), endStr = formatDate(adjustedEnd);
+          
+          // 期間内の記録をフィルタリング
           const monthRecords = safeHistory.filter(r => {
             const bDate = getBusinessDate(r.timestamp, businessStartHour);
             return bDate >= startStr && bDate <= endStr;
           });
+          
           const uniqueDays = new Set(monthRecords.map(r => getBusinessDate(r.timestamp, businessStartHour)));
-          totalDays += uniqueDays.size; totalCount += monthRecords.length; totalDispatch += monthRecords.filter(isDispatch).length; totalSales += monthRecords.reduce((sum, r) => sum + r.amount, 0);
-          months.push({ label: `${m + 1}月`, fullLabel: `${currentYear}年${m + 1}月度`, referenceDate: monthRefDate, dutyDays: uniqueDays.size, count: monthRecords.length, dispatch: monthRecords.filter(isDispatch).length, sales: monthRecords.reduce((sum, r) => sum + r.amount, 0), records: monthRecords });
+          totalDays += uniqueDays.size; 
+          totalCount += monthRecords.length; 
+          totalDispatch += monthRecords.filter(isDispatch).length; 
+          totalSales += monthRecords.reduce((sum, r) => sum + r.amount, 0);
+          
+          months.push({ 
+            label: `${m + 1}月`, 
+            fullLabel: `${currentYear}年${m + 1}月度`, 
+            referenceDate: monthRefDate, 
+            dutyDays: uniqueDays.size, 
+            count: monthRecords.length, 
+            dispatch: monthRecords.filter(isDispatch).length, 
+            sales: monthRecords.reduce((sum, r) => sum + r.amount, 0), 
+            records: monthRecords 
+          });
         }
-        return { yearLabel: `${currentYear}年度`, periodLabel: `${(shimebiDay === 0 ? currentYear : currentYear - 1)}年${(shimebiDay === 0 ? 1 : 12)}月度 〜 ${currentYear}年12月度`, months, totals: { dutyDays: totalDays, count: totalCount, dispatch: totalDispatch, sales: totalSales } };
+        return { 
+          yearLabel: `${currentYear}年度`, 
+          periodLabel: `${(shimebiDay === 0 ? currentYear : currentYear - 1)}年${(shimebiDay === 0 ? 1 : 12)}月度 〜 ${currentYear}年12月度`, 
+          months, 
+          totals: { dutyDays: totalDays, count: totalCount, dispatch: totalDispatch, sales: totalSales } 
+        };
     }, [history, tableTargetDate, shimebiDay, businessStartHour]);
 
+    // 月間実績表データの計算
     const tableMonthlyData = useMemo(() => {
         const { start, end } = getBillingPeriod(tableTargetDate, shimebiDay, businessStartHour);
         const adjustedEnd = new Date(end);
         if (shimebiDay !== 0 && adjustedEnd.getDate() !== shimebiDay) adjustedEnd.setDate(shimebiDay);
         const startStr = formatDate(start), endStr = formatDate(adjustedEnd);
+        
+        // 期間内の全日付を生成
         const days = []; const curr = new Date(start);
         while (curr <= adjustedEnd) { days.push(new Date(curr)); curr.setDate(curr.getDate() + 1); }
         
         const safeHistory = history || [];
 
+        // 各日付ごとの集計
         const rows = days.map(day => {
           const dateStr = formatDate(day);
           const dayRecords = safeHistory.filter(r => getBusinessDate(r.timestamp, businessStartHour) === dateStr);
@@ -212,18 +254,41 @@ export const MonthlyDashboard: React.FC<{
             startTimeStr = formatBusinessTime(sorted[0].timestamp, businessStartHour);
             endTimeStr = formatBusinessTime(sorted[sorted.length - 1].timestamp, businessStartHour);
           }
-          return { dateStr, dateLabel: `${day.getMonth() + 1}/${day.getDate()}`, weekDay: day.getDay(), startTimeStr, endTimeStr, count: dayRecords.length, dispatch: dayRecords.filter(isDispatch).length, sales: dayRecords.reduce((sum, r) => sum + r.amount, 0), hasData: dayRecords.length > 0, records: dayRecords };
+          return { 
+            dateStr, 
+            dateLabel: `${day.getMonth() + 1}/${day.getDate()}`, 
+            weekDay: day.getDay(), 
+            startTimeStr, 
+            endTimeStr, 
+            count: dayRecords.length, 
+            dispatch: dayRecords.filter(isDispatch).length, 
+            sales: dayRecords.reduce((sum, r) => sum + r.amount, 0), 
+            hasData: dayRecords.length > 0, 
+            records: dayRecords 
+          };
         });
-        return { monthLabel: `${getBillingMonthDate(tableTargetDate).getFullYear()}年 ${getBillingMonthDate(tableTargetDate).getMonth() + 1}月度`, periodLabel: `${startStr} 〜 ${endStr}`, rows, totals: { workDays: rows.filter(r => r.hasData).length, count: rows.reduce((s, r) => s + r.count, 0), dispatch: rows.reduce((s, r) => s + r.dispatch, 0), sales: rows.reduce((s, r) => s + r.sales, 0) } };
+        return { 
+          monthLabel: `${getBillingMonthDate(tableTargetDate).getFullYear()}年 ${getBillingMonthDate(tableTargetDate).getMonth() + 1}月度`, 
+          periodLabel: `${startStr} 〜 ${endStr}`, 
+          rows, 
+          totals: { 
+            workDays: rows.filter(r => r.hasData).length, 
+            count: rows.reduce((s, r) => s + r.count, 0), 
+            dispatch: rows.reduce((s, r) => s + r.dispatch, 0), 
+            sales: rows.reduce((s, r) => s + r.sales, 0) 
+          } 
+        };
     }, [history, tableTargetDate, shimebiDay, businessStartHour]);
 
     const weekNames = ['日', '月', '火', '水', '木', '金', '土'];
     const weekColors = ['text-red-400', 'text-gray-300', 'text-gray-300', 'text-gray-300', 'text-gray-300', 'text-gray-300', 'text-blue-400'];
 
+    // 履歴リストのソート
     const sortedGroups = useMemo(() => {
         return [...dailyGroups].sort((a, b) => isHistoryReversed ? b[0].localeCompare(a[0]) : a[0].localeCompare(b[0]));
     }, [dailyGroups, isHistoryReversed]);
 
+    // 月間サマリー統計の計算
     const summaryStats = useMemo(() => {
         if (!showSummary) return null;
         const records = monthData;
@@ -235,6 +300,7 @@ export const MonthlyDashboard: React.FC<{
         return { totalAmount, taxAmount, cashAmount, breakdown, counts };
     }, [monthData, showSummary]);
 
+    // 平均単価の計算
     const avgAmount = useMemo(() => {
         if (!showSummary) return 0;
         return monthData.length > 0 ? Math.round(summaryStats!.totalAmount / monthData.length) : 0;
@@ -252,12 +318,14 @@ export const MonthlyDashboard: React.FC<{
              )}
 
              <div className="space-y-4">
+                {/* 月間実績表と年間推移表の切り替えタブ */}
                 <div className="flex bg-gray-900 p-1.5 rounded-2xl border border-gray-800 shadow-sm">
                     <button onClick={() => { setViewMode('monthly'); setIsTableOpen(true); }} className={`flex-1 py-3 rounded-xl font-black transition-all flex items-center justify-center gap-2 text-sm whitespace-nowrap ${viewMode === 'monthly' ? 'bg-[#1A222C] text-amber-500 shadow-md border border-gray-700' : 'text-gray-500'}`}><Calendar className="w-4 h-4" /> 月間実績表</button>
                     <button onClick={() => { setViewMode('yearly'); setIsTableOpen(true); }} className={`flex-1 py-3 rounded-xl font-black transition-all flex items-center justify-center gap-2 text-sm whitespace-nowrap ${viewMode === 'yearly' ? 'bg-[#1A222C] text-blue-400 shadow-md border border-gray-700' : 'text-gray-500'}`}><Database className="w-4 h-4" /> 年間推移表</button>
                 </div>
 
                 <div className="space-y-0">
+                    {/* テーブルのヘッダー部分（クリックで開閉） */}
                     <div 
                     onClick={() => setIsTableOpen(!isTableOpen)}
                     className={`rounded-t-2xl p-4 text-center shadow-lg cursor-pointer active:brightness-95 transition-all ${viewMode === 'monthly' ? 'bg-[#EAB308]' : 'bg-[#CC6600]'}`}
@@ -277,9 +345,11 @@ export const MonthlyDashboard: React.FC<{
                     </div>
                     </div>
 
+                    {/* 実績テーブル本体 */}
                     <div className={`bg-[#1A222C] rounded-b-2xl overflow-hidden border-x border-b border-gray-800 shadow-2xl transition-all duration-300 ${isTableOpen ? 'max-h-[2000px] opacity-100' : 'max-h-0 opacity-0'}`}>
                     <div className="overflow-x-auto">
                         {viewMode === 'monthly' ? (
+                        /* 月間実績表のテーブル構造 */
                         <table className="w-full text-center text-sm">
                             <thead>
                             <tr className="bg-[#0f371d] text-white text-xs border-b border-green-800/50">
@@ -308,6 +378,7 @@ export const MonthlyDashboard: React.FC<{
                             </tbody>
                         </table>
                         ) : (
+                        /* 年間推移表のテーブル構造 */
                         <table className="w-full text-center text-sm">
                             <thead>
                             <tr className="bg-[#004d00] text-white text-xs border-b border-green-800/50">
@@ -412,17 +483,18 @@ export const MonthlyDashboard: React.FC<{
 };
 
 // --- Main HistoryView Component ---
+// 履歴画面のメインコンポーネント。自分や他ユーザーの履歴表示を切り替える。
 interface HistoryViewProps { 
-  history: SalesRecord[]; 
-  dayMetadata: Record<string, DayMetadata>;
-  customPaymentLabels: Record<string, string>;
-  businessStartHour: number;
-  shimebiDay: number; 
-  onEditRecord: (rec: SalesRecord) => void;
-  onUpdateMetadata: (date: string, meta: Partial<DayMetadata>) => void;
-  stats: MonthlyStats; 
-  initialTargetDate?: string | Date | null;
-  onClearTargetDate?: () => void;
+  history: SalesRecord[]; // 自分の売上履歴
+  dayMetadata: Record<string, DayMetadata>; // 日ごとのメタデータ
+  customPaymentLabels: Record<string, string>; // カスタム支払ラベル
+  businessStartHour: number; // 営業開始時間
+  shimebiDay: number; // 締日
+  onEditRecord: (rec: SalesRecord) => void; // 記録編集時のコールバック
+  onUpdateMetadata: (date: string, meta: Partial<DayMetadata>) => void; // メタデータ更新時のコールバック
+  stats: MonthlyStats; // 月次統計データ
+  initialTargetDate?: string | Date | null; // 初期表示対象日
+  onClearTargetDate?: () => void; // ターゲット日クリア時のコールバック
 }
 
 const HistoryView: React.FC<HistoryViewProps> = ({ 
@@ -438,21 +510,26 @@ const HistoryView: React.FC<HistoryViewProps> = ({
   onClearTargetDate
 }) => {
   const { user } = useAuth();
+  // 表示対象のユーザーIDと、それが自分かどうかのフラグ
   const [viewingUid, setViewingUid] = useState(user?.uid);
   const [isViewingMe, setIsViewingMe] = useState(true);
 
+  // 同僚リスト、選択中のユーザーオブジェクト、他ユーザーの履歴
   const [colleagues, setColleagues] = useState<any[]>([]);
   const [selectedUserObj, setSelectedUserObj] = useState<any | null>(null);
   const [otherHistory, setOtherHistory] = useState<SalesRecord[]>([]);
 
+  // 現在表示中の月と、選択中の日付
   const [currentMonth, setCurrentMonth] = useState(() => {
     const { end } = getBillingPeriod(new Date(), shimebiDay, businessStartHour);
     return end;
   });
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
 
+  // ターゲット日の処理済みフラグ（無限ループ防止）
   const processedTargetDateRef = useRef<string | null>(null);
 
+  // Firestoreから公開設定されているユーザーのステータスを取得
   useEffect(() => {
     const q = query(collection(db, "public_status"), orderBy("lastUpdated", "desc"), limit(50));
     const unsub = onSnapshot(q, (snap) => {
@@ -466,6 +543,7 @@ const HistoryView: React.FC<HistoryViewProps> = ({
     return () => unsub();
   }, []);
 
+  // 表示対象ユーザーが変更された際の処理
   useEffect(() => {
       const currentUid = user?.uid;
       if (viewingUid === currentUid) {
@@ -478,6 +556,7 @@ const HistoryView: React.FC<HistoryViewProps> = ({
           setSelectedUserObj(user || null);
           
           if (user) {
+              // アクティブな記録と過去の記録を結合して重複排除
               const activeRecords = user.records || [];
               let pastRecords: SalesRecord[] = [];
               if (user.months) {
@@ -495,6 +574,7 @@ const HistoryView: React.FC<HistoryViewProps> = ({
       }
   }, [viewingUid, colleagues]);
 
+  // 外部（ダッシュボードなど）から特定の日付が指定された場合の処理
   useEffect(() => {
     if (initialTargetDate) {
         const targetStr = initialTargetDate.toString();
@@ -516,6 +596,7 @@ const HistoryView: React.FC<HistoryViewProps> = ({
     }
   }, [initialTargetDate, shimebiDay, businessStartHour]);
 
+  // 閲覧可能なユーザーリストのフィルタリング（管理者権限や公開設定を考慮）
   const selectableUsers = useMemo(() => {
     const currentUid = user?.uid;
     const currentUserEmail = user?.email;
@@ -538,12 +619,15 @@ const HistoryView: React.FC<HistoryViewProps> = ({
     });
   }, [colleagues]);
 
+  // 現在の表示対象に基づいた履歴、開始時間、ラベルの決定
   const targetHistory = isViewingMe ? myHistory : otherHistory;
   const targetStartHour = isViewingMe ? businessStartHour : (selectedUserObj?.businessStartHour || 9);
   const targetLabels = isViewingMe ? myCustomLabels : {}; 
 
+  // メインコンテンツのレンダリング（日別詳細 or 月間ダッシュボード）
   const renderContent = () => {
       if (selectedDay) {
+          // 日別詳細ビューの表示
           const meta = isViewingMe ? (myDayMetadata[selectedDay] || { memo: '', attributedMonth: '', totalRestMinutes: 0 }) : { memo: '', attributedMonth: '', totalRestMinutes: 0 };
           const records = targetHistory.filter(r => getBusinessDate(r.timestamp, targetStartHour) === selectedDay);
           return (
@@ -560,6 +644,8 @@ const HistoryView: React.FC<HistoryViewProps> = ({
               />
           );
       }
+      
+      // 月間ダッシュボード用のデータ集計
       const { monthData, dailyGroups } = (() => {
           const targetReferenceDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), shimebiDay === 0 ? 28 : shimebiDay);
           const { start, end } = getBillingPeriod(targetReferenceDate, shimebiDay, targetStartHour);
@@ -567,11 +653,13 @@ const HistoryView: React.FC<HistoryViewProps> = ({
           if (shimebiDay !== 0) adjustedEnd.setDate(shimebiDay);
           const startStr = formatDate(start);
           const endDateStr = formatDate(adjustedEnd);
+          
           const safeTargetHistory = targetHistory || [];
           const monthData = safeTargetHistory.filter(r => {
               const bDate = getBusinessDate(r.timestamp, targetStartHour);
               return bDate >= startStr && bDate <= endDateStr;
           });
+          
           const groups: Record<string, SalesRecord[]> = {};
           monthData.forEach(r => {
             const bDate = getBusinessDate(r.timestamp, targetStartHour);

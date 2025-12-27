@@ -1,8 +1,14 @@
+// シフト編集モーダルコンポーネント - シフト開始時刻・予定営業時間の編集
+// シフト情報の開始日時と予定営業時間を修正可能
 import React, { useState } from 'react';
 import { Clock, ChevronDown } from 'lucide-react';
 import { Shift } from '@/types';
 import { ModalWrapper } from './ModalWrapper';
 
+// プロパティ定義
+// shift: 現在のシフト情報
+// onClose: モーダル閉じるコールバック
+// onSave: 変更内容保存時のコールバック（開始時刻・予定時間）
 interface ShiftEditModalProps {
   shift: Shift;
   onClose: () => void;
@@ -10,6 +16,10 @@ interface ShiftEditModalProps {
 }
 
 export const ShiftEditModal: React.FC<ShiftEditModalProps> = ({ shift, onClose, onSave }) => {
+  // フォーム状態
+  // dateStr: 開始日付（ISO形式）
+  // timeStr: 開始時刻（HH:mm形式）
+  // hours: 予定営業時間（4～24時間）
   const [dateStr, setDateStr] = useState(() => {
     const d = new Date(shift.startTime);
     const offset = d.getTimezoneOffset() * 60000;
@@ -20,6 +30,7 @@ export const ShiftEditModal: React.FC<ShiftEditModalProps> = ({ shift, onClose, 
   });
   const [hours, setHours] = useState(shift.plannedHours);
 
+  // 保存処理：新しい開始時刻を計算して保存
   const handleSave = () => {
     const [year, month, day] = dateStr.split('-').map(Number);
     const [h, m] = timeStr.split(':').map(Number);
@@ -28,7 +39,8 @@ export const ShiftEditModal: React.FC<ShiftEditModalProps> = ({ shift, onClose, 
     onClose();
   };
 
-  const hoursOptions = Array.from({ length: 21 }, (_, i) => i + 4); 
+  // 予定営業時間オプション（4時間～24時間）
+  const hoursOptions = Array.from({ length: 21 }, (_, i) => i + 4);
 
   return (
     <ModalWrapper onClose={onClose}>
@@ -36,17 +48,20 @@ export const ShiftEditModal: React.FC<ShiftEditModalProps> = ({ shift, onClose, 
         <h3 className="text-2xl font-black text-white text-center">営業情報の修正</h3>
         
         <div className="bg-gray-900/50 p-5 rounded-3xl border border-gray-800 space-y-5">
+          {/* 開始日時入力 */}
           <div>
             <label className="text-sm font-bold text-gray-400 mb-2 block uppercase tracking-widest flex items-center gap-2">
               <Clock className="w-4 h-4" /> 開始日時
             </label>
             <div className="flex gap-3">
+              {/* 日付ピッカー */}
               <input 
                 type="date" 
                 value={dateStr} 
                 onChange={(e) => setDateStr(e.target.value)} 
                 className="flex-1 bg-gray-800 border border-gray-700 rounded-xl p-3 text-white font-black outline-none focus:border-amber-500" 
               />
+              {/* 時刻ピッカー */}
               <input 
                 type="time" 
                 value={timeStr} 
@@ -56,6 +71,7 @@ export const ShiftEditModal: React.FC<ShiftEditModalProps> = ({ shift, onClose, 
             </div>
           </div>
 
+          {/* 予定営業時間選択 */}
           <div>
             <label className="text-sm font-bold text-gray-400 mb-2 block uppercase tracking-widest">予定営業時間</label>
             <div className="relative">
@@ -68,6 +84,7 @@ export const ShiftEditModal: React.FC<ShiftEditModalProps> = ({ shift, onClose, 
                   <option key={h} value={h}>{h} 時間</option>
                 ))}
               </select>
+              {/* ドロップダウンアイコン */}
               <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-500">
                 <ChevronDown className="w-5 h-5" />
               </div>
@@ -75,6 +92,7 @@ export const ShiftEditModal: React.FC<ShiftEditModalProps> = ({ shift, onClose, 
           </div>
         </div>
 
+        {/* 変更保存ボタン */}
         <button onClick={handleSave} className="w-full bg-amber-500 text-black py-4 rounded-2xl font-black text-2xl shadow-xl active:scale-95 transition-transform">
           変更を保存
         </button>

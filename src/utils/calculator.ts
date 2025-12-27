@@ -1,6 +1,7 @@
 import { MonthlyStats, SalesRecord, Shift } from '@/types';
 import { getBillingPeriod, formatDate, getBusinessDate } from './date';
 
+// 請求期間の統計情報を計算
 export const calculatePeriodStats = (
   monthlyStats: MonthlyStats,
   history: SalesRecord[],
@@ -17,11 +18,13 @@ export const calculatePeriodStats = (
   // 履歴と現在のシフトのレコードを結合
   const allRecords = [...history, ...(shift?.records || [])];
   
+  // 請求期間内の有効なレコードをフィルタ
   const validRecords = allRecords.filter(r => {
     const rDate = getBusinessDate(r.timestamp, startHour);
     return rDate >= startDateStr && rDate <= endDateStr;
   });
 
+  // 合計売上と乗車件数を計算
   const totalSales = validRecords.reduce((sum, r) => sum + r.amount, 0);
   const totalRides = validRecords.length;
 

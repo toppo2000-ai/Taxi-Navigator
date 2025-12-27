@@ -1,20 +1,18 @@
 // タクシー乗り場の設定定義
 export interface TaxiStandDef {
-  id: string;
-  name: string;       // ポップアップに表示する場所名
-  triggers: string[]; // この文字が住所に含まれていたら反応する（例: "梅田3丁目", "大阪駅"）
-  options: string[];  // 選択肢ボタンとして表示する内容
+  id: string; // タクシー乗り場の一意の識別子
+  name: string; // ポップアップに表示するタクシー乗り場の名前
+  triggers: string[]; // 住所に含まれる特定のキーワードで反応するトリガー
+  options: string[]; // ユーザーに表示する選択肢のリスト
 }
 
-// ここに設定を追加していけばOKです
+// タクシー乗り場の設定一覧
 export const TAXI_STAND_SETTINGS: TaxiStandDef[] = [
   {
     id: 'osaka_station',
     name: '大阪駅',
-    // 住所にこれらの単語が含まれていたら発動
-    triggers: ['梅田3丁目', '梅田３丁目', '梅田３'], 
-    // 表示する選択肢
-    options: ['桜橋口', 'ガード下']
+    triggers: ['梅田3丁目', '梅田３丁目', '梅田３'], // 住所にこれらの単語が含まれていたら発動
+    options: ['桜橋口', 'ガード下'] // 表示する選択肢
   },
   {
     id: 'shin_osaka',
@@ -34,24 +32,15 @@ export const TAXI_STAND_SETTINGS: TaxiStandDef[] = [
     triggers: ['巽東３', '巽東１'],
     options: ['１番', '２番', '２１番', '１７番', '４番', '５番', '７番']
   },
-  // 例: 追加したい場合は以下のように増やすだけ
-  // {
-  //   id: 'kyoto_station',
-  //   name: '京都駅',
-  //   triggers: ['京都駅', '烏丸小路'],
-  //   options: ['八条口', '中央口']
-  // },
 ];
 
-/**
- * 住所から該当する乗り場設定を検索する関数
- */
+// 住所から該当するタクシー乗り場設定を検索する関数
 export const findTaxiStand = (address: string): TaxiStandDef | null => {
   if (!address) return null;
   
   // 設定リストを上から順にチェック
   for (const stand of TAXI_STAND_SETTINGS) {
-    // triggersの中のどれか1つでも住所に含まれていればヒット
+    // トリガーの中のどれか1つでも住所に含まれていればヒット
     if (stand.triggers.some(keyword => address.includes(keyword))) {
       return stand;
     }

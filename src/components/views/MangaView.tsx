@@ -1,3 +1,4 @@
+// ガイドコンポーネント (漫画形式) - アプリ使い方のチュートリアル表示
 import React from 'react';
 import { 
   Car, 
