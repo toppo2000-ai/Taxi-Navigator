@@ -10,11 +10,11 @@ export interface TaxiStandDef {
 export const TAXI_STAND_SETTINGS: TaxiStandDef[] = [
   {
     id: 'osaka_station',
-    name: '大阪駅乗り場',
+    name: '大阪駅',
     // 住所にこれらの単語が含まれていたら発動
     triggers: ['梅田3丁目', '梅田３丁目', '梅田３'], 
     // 表示する選択肢
-    options: ['大阪駅桜橋口', '大阪駅ガード下']
+    options: ['桜橋口', 'ガード下']
   },
   {
     id: 'shin_osaka',

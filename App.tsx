@@ -13,6 +13,7 @@ import {
   User as UserIcon,
   ArrowRight,
   BookOpen,
+  Bug, // ★追加
   Shield // 管理者アイコン
 } from 'lucide-react';
 
@@ -52,7 +53,7 @@ import {
   getBillingPeriod,
   formatDate,
 } from './utils';
-
+import DebugView from './components/DebugView'; // ファイル上部に追加
 import Dashboard from './components/Dashboard';
 import HistoryView from './components/HistoryView';
 import AnalysisView from './components/AnalysisView';
@@ -103,9 +104,14 @@ export default function App() {
   const [isAuthChecking, setIsAuthChecking] = useState(true);
   const [isDataLoading, setIsDataLoading] = useState(false);
   
-  // ★ユーザー権限・管理者モード状態
+// ★ユーザー権限・管理者モード状態
   const [userProfile, setUserProfile] = useState<{ role: 'admin' | 'user'; status: 'active' | 'pending' | 'banned' } | null>(null);
   const [isAdminMode, setIsAdminMode] = useState(false);
+
+  // ★追加: 代理操作（なりすまし）用のID管理
+  const [viewingUid, setViewingUid] = useState<string | null>(null);
+  // ★追加: 操作対象ID (viewingUidがあればそれ、なければ自分のID)
+  const targetUid = viewingUid || user?.uid;
 
   // --- 2. スプラッシュ画面（起動時演出）状態 ---
   const [appInitLoading, setAppInitLoading] = useState(true);
@@ -237,14 +243,42 @@ export default function App() {
       allHistoryRecords.sort((a, b) => b.amount - a.amount);
       const topRecords = allHistoryRecords.slice(0, 5);
 
-      // 2. 直近（当月分）のレコード抽出（ダッシュボード詳細・履歴閲覧用）
-      // ※全履歴を入れると容量オーバーの危険があるため、当月分に限定
-      const recentRecords = [...currentHistory, ...(currentShift ? currentShift.records : [])]
-        .filter(r => {
-          const rDate = getBusinessDate(r.timestamp, startHour);
-          return rDate >= startStr && rDate <= endStr;
-        })
-        .sort((a, b) => b.timestamp - a.timestamp); // 新しい順
+// ----- 変更後のコード (ここに貼り付け) -----
+
+      // 2. 全履歴データの構築と月別アーカイブの作成
+      const allRecords = [...currentHistory, ...(currentShift?.records || [])];
+      
+      // 重複排除 (念のためIDで)
+      const uniqueRecordsMap = new Map();
+      allRecords.forEach(r => uniqueRecordsMap.set(r.id, r));
+      const uniqueRecords = Array.from(uniqueRecordsMap.values()) as SalesRecord[];
+
+      // 月別にグループ化 (monthsデータ作成)
+      const monthsData: Record<string, any> = {};
+      
+      uniqueRecords.forEach(record => {
+          const period = getBillingPeriod(new Date(record.timestamp), stats.shimebiDay, startHour);
+          const year = period.end.getFullYear();
+          const month = period.end.getMonth() + 1;
+          const sortKey = `${year}-${String(month).padStart(2, '0')}`;
+          
+          if (!monthsData[sortKey]) {
+              monthsData[sortKey] = {
+                  label: `${year}年${month}月度`,
+                  sortKey,
+                  sales: 0,
+                  records: [],
+                  startStr: formatDate(period.start),
+                  endStr: formatDate(period.end)
+              };
+          }
+          
+          monthsData[sortKey].records.push(record);
+          monthsData[sortKey].sales += record.amount;
+      });
+
+      // 現在進行中のレコード (records)
+      const activeRecords = currentShift ? currentShift.records : [];
 
       const statusData = {
           uid: currentUser.uid,
@@ -255,8 +289,11 @@ export default function App() {
           businessStartHour: stats.businessStartHour,
           visibilityMode: stats.visibilityMode, 
           allowedViewers: stats.allowedViewers,
-          topRecords: topRecords, // ランキング用
-          recentRecords: recentRecords // 他人からの詳細閲覧用
+          
+          // ★新しいデータ構造
+          topRecords: topRecords, // 歴代記録
+          records: activeRecords, // 現在のシフト詳細
+          months: monthsData      // 過去の履歴詳細
       };
 
       if (currentShift) {
@@ -285,139 +322,123 @@ export default function App() {
     }
   };
 
-  /**
-   * Firebase 監視・同期 useEffect (厳格セキュリティ版)
+// ----- (ここまで貼り付け) -----
+/**
+   * 1. 認証状態の監視 (ログイン/ログアウトのみ管理)
    */
   useEffect(() => {
     getRedirectResult(auth).catch(e => console.error("Auth error:", e));
     const unsubAuth = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
       setIsAuthChecking(false);
-      
-      if (currentUser) {
-        try {
-          const userRef = doc(db, 'users', currentUser.uid);
-          const userSnap = await getDoc(userRef);
-
-          if (userSnap.exists()) {
-            const data = userSnap.data();
-            const updates: any = {};
-            let needsUpdate = false;
-
-            if (!data.displayName && currentUser.displayName) {
-              updates.displayName = currentUser.displayName;
-              needsUpdate = true;
-            }
-            if (!data.email && currentUser.email) {
-              updates.email = currentUser.email;
-              needsUpdate = true;
-            }
-            if (!data.role) {
-              updates.role = 'user';
-              needsUpdate = true;
-            }
-            
-            if (!data.status) {
-              updates.status = 'pending';
-              needsUpdate = true;
-            }
-
-            if (needsUpdate) {
-              await setDoc(userRef, updates, { merge: true });
-            }
-
-            setUserProfile({
-              role: data.role || updates.role || 'user',
-              status: data.status || updates.status || 'pending'
-            });
-
-          } else {
-            // 新規ユーザー：承認待ち「pending」として作成
-            const newProfile = { role: 'user', status: 'pending' } as const;
-            await setDoc(userRef, {
-              ...newProfile,
-              email: currentUser.email,
-              displayName: currentUser.displayName || '名無し',
-              createdAt: serverTimestamp()
-            }, { merge: true });
-            setUserProfile(newProfile);
-          }
-        } catch (e) {
-          console.error("User profile fetch failed:", e);
-        }
-
-        setIsDataLoading(true);
-        const unsubDB = onSnapshot(doc(db, "users", currentUser.uid), (docSnap) => {
+      // ログアウト時は代理モードも解除
+      if (!currentUser) {
+          setViewingUid(null);
           setIsDataLoading(false);
-          if (docSnap.exists()) {
-            const data = docSnap.data();
-            
-            if (data.role && data.status) {
-              setUserProfile({ role: data.role, status: data.status });
-            }
-
-            const safeShift = sanitizeShift(data.shift);
-            
-            if (JSON.stringify(safeShift) !== JSON.stringify(data.shift)) {
-               setDoc(doc(db, "users", currentUser.uid), { shift: safeShift }, { merge: true });
-            }
-
-            setShift(safeShift);
-            setHistory(data.history || []);
-            setDayMetadata(data.dayMetadata || {});
-            
-            const bState = data.breakState || { isActive: false, startTime: null };
-            setBreakState(bState);
-
-            const savedStats = data.stats || {};
-            const shimebiDay = savedStats.shimebiDay !== undefined ? savedStats.shimebiDay : 20;
-            const businessStartHour = savedStats.businessStartHour ?? 9;
-            
-            // ★修正: followingUsers を確実に読み込む
-            const newStats = {
-                monthLabel: savedStats.monthLabel || '',
-                totalSales: savedStats.totalSales || 0,
-                totalRides: savedStats.totalRides || 0,
-                monthlyGoal: savedStats.monthlyGoal || 1000000, 
-                defaultDailyGoal: savedStats.defaultDailyGoal ?? 50000,
-                shimebiDay: shimebiDay,
-                businessStartHour: businessStartHour,
-                dutyDays: savedStats.dutyDays && savedStats.dutyDays.length > 0 
-                    ? savedStats.dutyDays 
-                    : generateDefaultDutyDays(shimebiDay, businessStartHour),
-                enabledPaymentMethods: savedStats.enabledPaymentMethods || DEFAULT_PAYMENT_ORDER,
-                customPaymentLabels: savedStats.customPaymentLabels || {},
-                userName: savedStats.userName || '',
-                enabledRideTypes: savedStats.enabledRideTypes || ALL_RIDE_TYPES,
-                uid: currentUser.uid,
-                visibilityMode: savedStats.visibilityMode || 'PUBLIC',
-                allowedViewers: savedStats.allowedViewers || [],
-                followingUsers: savedStats.followingUsers || [] // ★ここが重要
-            };
-            setMonthlyStats(newStats);
-            broadcastStatus(currentUser, safeShift, data.history || [], newStats, bState.isActive ? 'break' : 'active');
-          } else {
-            setShift(null);
-            setHistory([]);
-            setMonthlyStats(prev => ({ 
-              ...prev, 
-              dutyDays: generateDefaultDutyDays(20, 9),
-              visibilityMode: 'PUBLIC',
-              allowedViewers: [],
-              followingUsers: []
-            }));
-          }
-        });
-        return () => unsubDB();
-      } else {
-        setIsDataLoading(false);
-        setShift(null);
-        setUserProfile(null); // ログアウト時はクリア
+          setShift(null);
+          setUserProfile(null);
       }
     });
     return () => unsubAuth();
   }, []);
 
+  /**
+   * 2. データ同期 (targetUid が変わるたびに実行)
+   */
+  useEffect(() => {
+    // ユーザーがいない、またはターゲットが決まっていない場合は何もしない
+    if (!user || !targetUid) return;
+
+    const initUserData = async () => {
+       setIsDataLoading(true);
+       try {
+         // ★自分のプロフィール(権限)は常に自分のIDから取得して維持する
+         // (これをしないと、一般ユーザーになりすました瞬間に管理者権限を失って戻れなくなるため)
+         if (targetUid === user.uid) {
+             const userRef = doc(db, 'users', user.uid);
+             const userSnap = await getDoc(userRef);
+             if (userSnap.exists()) {
+                 const data = userSnap.data();
+                 setUserProfile({
+                     role: data.role || 'user',
+                     status: data.status || 'pending'
+                 });
+             } else {
+                 // 新規ユーザー作成
+                 const newProfile = { role: 'user', status: 'pending' } as const;
+                 await setDoc(userRef, { ...newProfile, email: user.email, createdAt: serverTimestamp() }, { merge: true });
+                 setUserProfile(newProfile);
+             }
+         }
+
+         // ★データ監視: targetUid (自分または代理先) のデータをリッスン
+         const unsubDB = onSnapshot(doc(db, "users", targetUid), (docSnap) => {
+           setIsDataLoading(false);
+           if (docSnap.exists()) {
+             const data = docSnap.data();
+             
+             // --- データセット処理 (中身は以前と同じ) ---
+             const safeShift = sanitizeShift(data.shift);
+             // 古い形式なら更新
+             if (JSON.stringify(safeShift) !== JSON.stringify(data.shift)) {
+                setDoc(doc(db, "users", targetUid), { shift: safeShift }, { merge: true });
+             }
+
+             setShift(safeShift);
+             setHistory(data.history || []);
+             setDayMetadata(data.dayMetadata || {});
+             
+             const bState = data.breakState || { isActive: false, startTime: null };
+             setBreakState(bState);
+
+             const savedStats = data.stats || {};
+             const shimebiDay = savedStats.shimebiDay !== undefined ? savedStats.shimebiDay : 20;
+             const businessStartHour = savedStats.businessStartHour ?? 9;
+             
+             const newStats = {
+                 monthLabel: savedStats.monthLabel || '',
+                 totalSales: savedStats.totalSales || 0,
+                 totalRides: savedStats.totalRides || 0,
+                 monthlyGoal: savedStats.monthlyGoal || 1000000, 
+                 defaultDailyGoal: savedStats.defaultDailyGoal ?? 50000,
+                 shimebiDay: shimebiDay,
+                 businessStartHour: businessStartHour,
+                 dutyDays: savedStats.dutyDays || [],
+                 enabledPaymentMethods: savedStats.enabledPaymentMethods || DEFAULT_PAYMENT_ORDER,
+                 customPaymentLabels: savedStats.customPaymentLabels || {},
+                 userName: savedStats.userName || '',
+                 enabledRideTypes: savedStats.enabledRideTypes || ALL_RIDE_TYPES,
+                 visibilityMode: savedStats.visibilityMode || 'PUBLIC',
+                 allowedViewers: savedStats.allowedViewers || [],
+                 followingUsers: savedStats.followingUsers || []
+             };
+             setMonthlyStats(newStats);
+             
+             // 公開ステータス更新も代理実行
+             const actingUser = { ...user, uid: targetUid } as User;
+             broadcastStatus(actingUser, safeShift, data.history || [], newStats, bState.isActive ? 'break' : 'active');
+
+           } else {
+             // データが存在しない場合 (初期化)
+             setShift(null);
+             setHistory([]);
+             setMonthlyStats(prev => ({ ...prev, uid: targetUid }));
+           }
+         });
+         return unsubDB;
+       } catch (e) {
+         console.error("Data sync failed", e);
+         setIsDataLoading(false);
+       }
+    };
+
+    let unsubscribe: (() => void) | undefined;
+    initUserData().then(unsub => { unsubscribe = unsub; });
+
+    return () => {
+        if (unsubscribe) unsubscribe();
+    };
+  }, [user, targetUid]); // ★userかtargetUidが変わったら再実行
   /**
    * currentPeriodStats
    */
@@ -453,9 +474,10 @@ export default function App() {
     updates: any, 
     statusOverride?: 'active' | 'break' | 'riding'
   ) => {
-    if (!user) return;
+    if (!user || !targetUid) return; // ★変更: userだけでなくtargetUidもチェック
     try { 
-        await setDoc(doc(db, "users", user.uid), updates, { merge: true });
+        // ★変更: targetUid (代理先) に保存
+        await setDoc(doc(db, "users", targetUid), updates, { merge: true });
         
         const currentShift = updates.shift !== undefined ? updates.shift : shift;
         const currentHistory = updates.history !== undefined ? updates.history : history;
@@ -469,7 +491,9 @@ export default function App() {
             nextStatus = 'break';
         }
 
-        broadcastStatus(user, currentShift, currentHistory, currentStats, nextStatus);
+        // ★変更: 代理ユーザーとしてランキング等に通知するため、IDを一時的に書き換え
+        const actingUser = { ...user, uid: targetUid } as User;
+        broadcastStatus(actingUser, currentShift, currentHistory, currentStats, nextStatus);
     } catch (e) {
       console.error("Save to DB failed:", e);
     }
@@ -860,6 +884,22 @@ export default function App() {
   return (
     <div className="max-w-md mx-auto min-h-screen bg-[#0A0E14] text-white font-sans pb-28 overflow-x-hidden relative w-full">
       
+      {/* ★追加: 代理操作モード中の警告・解除バー */}
+      {viewingUid && viewingUid !== user?.uid && (
+        <div className="bg-red-600 text-white px-4 py-2 flex justify-between items-center sticky top-0 z-50 shadow-md safe-top animate-in slide-in-from-top">
+            <span className="text-xs font-bold animate-pulse flex items-center gap-2">
+                <Shield size={16} />
+                代理操作中: {monthlyStats.userName || '名称未設定'}
+            </span>
+            <button 
+                onClick={() => setViewingUid(null)} 
+                className="bg-white text-red-600 text-xs font-black px-3 py-1.5 rounded-full active:scale-95 shadow-sm"
+            >
+                解除する
+            </button>
+        </div>
+      )}
+
       {/* Header */}
       <header className="bg-[#1A222C] border-b border-gray-800 p-4 safe-top sticky top-0 z-30 overflow-hidden relative">
         <div className="flex justify-between items-center relative z-10">
@@ -975,9 +1015,14 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'guide' && (
-          <MangaView />
+{activeTab === 'guide' && (
+  <MangaView />
+)}
+{/* ★追加: デバッグタブの内容 */}
+        {activeTab === 'debug' && (
+          <DebugView />
         )}
+        
       </main>
       
       {/* モーダル群 */}
@@ -1011,6 +1056,11 @@ export default function App() {
             isAdmin={userProfile?.role === 'admin'} 
             onUpdateStats={handleUpdateMonthlyStats} 
             onClose={() => setIsSettingsOpen(false)} 
+            // ★追加: 代理ログイン関数を渡す
+            onImpersonate={(uid) => {
+                setViewingUid(uid);
+                setIsSettingsOpen(false);
+            }}
           />
       )}
       
@@ -1061,6 +1111,16 @@ export default function App() {
           <BookOpen className="w-6 h-6" />
           <span className="text-[10px] font-black uppercase tracking-widest">ガイド</span>
         </button>
+
+        {/* ★追加: デバッグボタン */}
+        <button 
+          onClick={() => setActiveTab('debug')} 
+          className={`flex flex-col items-center gap-1 transition-all active:scale-95 ${activeTab === 'debug' ? 'text-red-500' : 'text-gray-600'}`}
+        >
+          <Bug className="w-6 h-6" />
+          <span className="text-[10px] font-black uppercase tracking-widest">Debug</span>
+        </button>
+
       </nav>
     </div>
   );

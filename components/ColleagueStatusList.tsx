@@ -58,37 +58,54 @@ const ColleagueDetailModal: React.FC<{
     onClose: () => void 
 }> = ({ user, date, onClose }) => {
     
-    // ★修正: usersコレクションをリッスンするのではなく、
-    // 親から渡された user オブジェクト (public_status由来) を使用する
-    const realtimeData = useMemo(() => {
-        // public_statusにあるデータを使用
-        const activeRecords = user.records || [];
-        
-        // 過去データ（months）がある場合、それらも考慮して直近24時間を算出
-        let pastRecords: SalesRecord[] = [];
-        if (user.months) {
-             pastRecords = Object.values(user.months).flatMap(m => m.records);
-        }
+  // ★修正: リアルタイムリスナーで public_status からデータを取得
+    const [realtimeData, setRealtimeData] = useState<{
+        records: SalesRecord[], 
+        total: number, 
+        currentLocation?: { lat: number, lng: number, timestamp: number } 
+    } | null>(null);
 
-        const now = Date.now();
-        const oneDayAgo = now - 24 * 60 * 60 * 1000;
+    useEffect(() => {
+        const unsub = onSnapshot(doc(db, "public_status", user.uid), (docSnap) => {
+            if (docSnap.exists()) {
+                const data = docSnap.data();
+                
+                // ★修正ポイント1: 'records' がなければ 'recentRecords' を読みに行くように変更
+                const activeRecords: SalesRecord[] = data.records || data.recentRecords || [];
+                
+                let pastRecords: SalesRecord[] = [];
+                
+                // ★修正ポイント2: monthsデータの存在チェックを厳密に
+                if (data.months) {
+                     pastRecords = Object.values(data.months).flatMap((m: any) => m.records || []);
+                }
 
-        // activeRecords と pastRecords を結合し、重複排除して24時間以内をフィルタ
-        const allRecords = [...pastRecords, ...activeRecords]
-            .filter((r: SalesRecord) => r.timestamp > oneDayAgo)
-            // 重複排除（IDがある場合）
-            .filter((r, index, self) => index === self.findIndex((t) => t.id === r.id))
-            .sort((a: SalesRecord, b: SalesRecord) => b.timestamp - a.timestamp);
+                // 24時間以内のデータを抽出するための基準時刻
+                const now = Date.now();
+                const oneDayAgo = now - 24 * 60 * 60 * 1000;
 
-        const total = allRecords.reduce((sum: number, r: SalesRecord) => sum + r.amount, 0);
-        
-        return { 
-            records: allRecords, 
-            total: user.sales || total, // user.salesがあればそれを優先（同期ズレ防止）
-            currentLocation: user.currentLocation
-        };
-    }, [user]);
+                // 全レコードを結合し、直近24時間を抽出
+                const allRecords = [...pastRecords, ...activeRecords]
+                    .filter((r: SalesRecord) => r.timestamp > oneDayAgo)
+                    .filter((r, index, self) => index === self.findIndex((t) => t.id === r.id)) // 重複排除
+                    .sort((a, b) => b.timestamp - a.timestamp);
 
+                const total = allRecords.reduce((sum, r) => sum + r.amount, 0);
+                
+                setRealtimeData({ 
+                    records: allRecords, 
+                    total,
+                    currentLocation: data.currentLocation 
+                });
+            } else {
+                setRealtimeData({ records: [], total: 0 });
+            }
+        });
+
+        return () => unsub();
+    }, [user.uid]);
+
+    
     const getLocationTimeDiff = () => {
         if (!realtimeData.currentLocation?.timestamp) return '';
         const diff = Math.floor((Date.now() - realtimeData.currentLocation.timestamp) / 60000);

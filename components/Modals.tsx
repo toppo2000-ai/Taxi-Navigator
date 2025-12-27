@@ -32,9 +32,10 @@ import {
   UserPlus,   
   UserCheck,
   FileUp,
-  Map as MapIcon // 追加
+  Map as MapIcon, // 追加
+  Building2 // ★追加: ホテル用アイコン
 } from 'lucide-react';
-import { collection, getDocs } from 'firebase/firestore'; 
+import { collection, getDocs, query, orderBy } from 'firebase/firestore';
 import { MonthlyStats, PaymentMethod, SalesRecord, RideType, Shift, DEFAULT_PAYMENT_ORDER, ALL_RIDE_TYPES, VisibilityMode } from '../types';
 import { 
   toCommaSeparated, 
@@ -54,7 +55,7 @@ import { signOut } from 'firebase/auth';
 import { auth, db } from '../firebase'; 
 import { CsvImportSection } from './CsvImportSection';
 import { findTaxiStand, TaxiStandDef } from '../taxiStands'; // 追加
-
+import { findHotel } from '../hotels'; // ★追加: ホテル検索関数
 // --- Shared Wrapper ---
 
 export const ModalWrapper: React.FC<{ children: React.ReactNode, onClose: () => void }> = ({ children, onClose }) => (
@@ -214,8 +215,12 @@ export const SettingsModal: React.FC<{
   isAdmin: boolean;
   onUpdateStats: (newStats: Partial<MonthlyStats>) => void;
   onImportRecords?: (records: SalesRecord[], targetUid?: string) => void;
-  onClose: () => void 
-}> = ({ stats, isAdmin, onUpdateStats, onImportRecords, onClose }) => {
+  onClose: () => void;
+  onImpersonate?: (uid: string) => void; // ★追加: 代理ログイン用関数
+}> = ({ stats, isAdmin, onUpdateStats, onImportRecords, onClose, onImpersonate }) => {
+  // ★追加: タブ管理用ステート
+  const [activeTab, setActiveTab] = useState<'basic' | 'display' | 'admin'>('basic');
+  
   const [shimebi, setShimebi] = useState(stats.shimebiDay.toString());
   const [businessStartHour, setBusinessStartHour] = useState(stats.businessStartHour ?? 9);
   const [monthlyGoalStr, setMonthlyGoalStr] = useState(stats.monthlyGoal.toLocaleString());
@@ -235,6 +240,9 @@ export const SettingsModal: React.FC<{
 
   const [followingUsers, setFollowingUsers] = useState<string[]>(stats.followingUsers || []);
 
+  // ★追加: 管理者用ユーザーリスト
+  const [adminUserList, setAdminUserList] = useState<any[]>([]);
+
   useEffect(() => {
     const fetchUsers = async () => {
       try {
@@ -249,6 +257,22 @@ export const SettingsModal: React.FC<{
     };
     fetchUsers();
   }, [stats.uid]);
+
+  // ★追加: 管理者タブが開かれた時に全ユーザーを取得
+  useEffect(() => {
+      if (activeTab === 'admin' && isAdmin) {
+          const fetchAdminUsers = async () => {
+              try {
+                  const q = query(collection(db, "public_status"), orderBy("lastUpdated", "desc"));
+                  const snap = await getDocs(q);
+                  setAdminUserList(snap.docs.map(d => ({ uid: d.id, ...d.data() })));
+              } catch (e) {
+                  console.error("Admin fetch failed", e);
+              }
+          };
+          fetchAdminUsers();
+      }
+  }, [activeTab, isAdmin]);
 
   const calendarDates = useMemo(() => {
     const sDay = parseInt(shimebi);
@@ -345,312 +369,364 @@ export const SettingsModal: React.FC<{
   return (
     <ModalWrapper onClose={onClose}>
       <div className="space-y-6 pb-6">
-        <div className="text-center">
-          <h3 className="text-2xl font-black text-white">設定</h3>
+        <div className="flex justify-between items-center">
+          <h3 className="text-xl font-black text-white flex items-center gap-2">
+             <Settings className="w-6 h-6 text-gray-400" /> 設定
+          </h3>
+          <button onClick={onClose} className="p-2 bg-gray-800 rounded-full text-gray-400 hover:text-white active:scale-95">
+             <X className="w-5 h-5" />
+          </button>
         </div>
 
-        {/* ユーザー名設定 */}
-        <div className="bg-gray-900/50 p-5 rounded-3xl border border-gray-800 space-y-3">
-            <label className="text-sm font-bold text-gray-400 block uppercase tracking-widest flex items-center gap-2">
-                <User className="w-4 h-4"/> ユーザー名
-            </label>
-            <input 
-                type="text" 
-                value={userName} 
-                onChange={(e) => setUserName(e.target.value)} 
-                placeholder="未設定" 
-                className="bg-gray-800 text-white font-black w-full outline-none p-3 rounded-2xl border border-gray-700" 
-            />
+        {/* ★変更: タブ切り替えボタン */}
+        <div className="flex gap-2 bg-gray-900/50 p-1 rounded-xl">
+            <button onClick={() => setActiveTab('basic')} className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'basic' ? 'bg-gray-700 text-white shadow' : 'text-gray-500'}`}>基本</button>
+            <button onClick={() => setActiveTab('display')} className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'display' ? 'bg-gray-700 text-white shadow' : 'text-gray-500'}`}>表示</button>
+            {isAdmin && (
+                <button onClick={() => setActiveTab('admin')} className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'admin' ? 'bg-purple-900/50 text-purple-300 shadow border border-purple-500/30' : 'text-gray-500'}`}>管理者</button>
+            )}
         </div>
 
-        {/* プライバシー設定セクション */}
-        <div className="bg-gray-900/50 p-5 rounded-3xl border border-gray-800 space-y-4">
-          <label className="text-lg font-black text-gray-500 uppercase tracking-widest block flex items-center gap-2">
-             <Lock className="w-5 h-5"/> 稼働状況の公開設定
-          </label>
-          <div className="p-3 bg-blue-900/10 border border-blue-500/20 rounded-xl text-[10px] text-blue-300 mb-2">
-            <p className="mb-1">※売上ランキングは設定に関わらず全員に公開されます。</p>
-            <p>※稼働状況（現在地や現在のステータス）の表示範囲を選択してください。</p>
-          </div>
-          
-          <div className="grid grid-cols-3 gap-2">
-            <button onClick={() => setVisibilityMode('PUBLIC')} className={`flex flex-col items-center gap-2 p-3 rounded-xl border transition-all ${visibilityMode === 'PUBLIC' ? 'bg-green-500/10 border-green-500 text-green-400' : 'bg-gray-800 border-gray-700 text-gray-500 hover:bg-gray-700'}`}>
-              <Globe size={24} />
-              <div className="text-center"><p className="text-xs font-bold">全員に公開</p><p className="text-[9px] opacity-70">制限なし</p></div>
-            </button>
-            <button onClick={() => setVisibilityMode('CUSTOM')} className={`flex flex-col items-center gap-2 p-3 rounded-xl border transition-all ${visibilityMode === 'CUSTOM' ? 'bg-amber-500/10 border-amber-500 text-amber-400' : 'bg-gray-800 border-gray-700 text-gray-500 hover:bg-gray-700'}`}>
-              <Users size={24} />
-              <div className="text-center"><p className="text-xs font-bold">限定公開</p><p className="text-[9px] opacity-70">指定した人のみ</p></div>
-            </button>
-            <button onClick={() => setVisibilityMode('PRIVATE')} className={`flex flex-col items-center gap-2 p-3 rounded-xl border transition-all ${visibilityMode === 'PRIVATE' ? 'bg-red-500/10 border-red-500 text-red-400' : 'bg-gray-800 border-gray-700 text-gray-500 hover:bg-gray-700'}`}>
-              <Lock size={24} />
-              <div className="text-center"><p className="text-xs font-bold">非公開</p><p className="text-[9px] opacity-70">誰にも見せない</p></div>
-            </button>
-          </div>
-
-          {/* CUSTOMモードの場合のみ、ユーザー選択リストを表示 */}
-          {visibilityMode === 'CUSTOM' && (
-            <div className="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-3 animate-in fade-in slide-in-from-top-2">
-              <div className="flex items-center gap-2 bg-gray-900 p-2 rounded-lg border border-gray-700">
-                <Search size={16} className="text-gray-500" />
-                <input type="text" placeholder="ユーザーを検索..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="bg-transparent text-sm text-white w-full focus:outline-none" />
-              </div>
-              <div className="max-h-48 overflow-y-auto space-y-1 custom-scrollbar">
-                {filteredUsers.length > 0 ? filteredUsers.map(u => {
-                  const isAllowed = allowedViewers.includes(u.uid);
-                  return (
-                    <div key={u.uid} onClick={() => toggleAllowedUser(u.uid)} className={`flex items-center justify-between p-3 rounded-lg cursor-pointer transition-colors border ${isAllowed ? 'bg-amber-500/10 border-amber-500/30' : 'bg-gray-900 border-gray-800 hover:bg-gray-800'}`}>
-                      <div className="flex items-center gap-3">
-                        <div className={`p-1.5 rounded-full ${isAllowed ? 'bg-amber-500 text-black' : 'bg-gray-800 text-gray-500'}`}>
-                          {isAllowed ? <UserCheck size={14} /> : <UserPlus size={14} />}
-                        </div>
-                        <span className={`text-sm font-bold ${isAllowed ? 'text-white' : 'text-gray-500'}`}>{u.name}</span>
-                      </div>
-                      {isAllowed && <Check size={16} className="text-amber-500" />}
+        <div className="overflow-y-auto max-h-[60vh] space-y-6 pr-1 custom-scrollbar">
+            
+            {/* --- 基本設定タブ --- */}
+            {activeTab === 'basic' && (
+                <div className="space-y-6 animate-in fade-in slide-in-from-right-2 duration-200">
+                    {/* ユーザー名設定 */}
+                    <div className="bg-gray-900/50 p-5 rounded-3xl border border-gray-800 space-y-3">
+                        <label className="text-sm font-bold text-gray-400 block uppercase tracking-widest flex items-center gap-2">
+                            <User className="w-4 h-4"/> ユーザー名
+                        </label>
+                        <input 
+                            type="text" 
+                            value={userName} 
+                            onChange={(e) => setUserName(e.target.value)} 
+                            placeholder="未設定" 
+                            className="bg-gray-800 text-white font-black w-full outline-none p-3 rounded-2xl border border-gray-700" 
+                        />
                     </div>
-                  );
-                }) : (
-                  <p className="text-center text-[10px] text-gray-600 py-4">ユーザーが見つかりません</p>
-                )}
-              </div>
-              <p className="text-[10px] text-gray-500 text-right">現在 {allowedViewers.length} 名にのみ公開中</p>
-            </div>
-          )}
-        </div>
 
-        {/* 表示するユーザーの設定（フォロー機能） */}
-        <div className="bg-gray-900/50 p-5 rounded-3xl border border-gray-800 space-y-4">
-          <label className="text-lg font-black text-gray-500 uppercase tracking-widest block flex items-center gap-2">
-             <Users className="w-5 h-5"/> 表示するユーザーの選択
-          </label>
-          <div className="p-3 bg-gray-800/50 border border-gray-700 rounded-xl text-[10px] text-gray-400 mb-2">
-            <p>※あなたが稼働状況を表示したい（フォローする）ユーザーを選択してください。</p>
-            <p>※相手が公開を許可している場合のみ表示されます。</p>
-          </div>
-
-          <div className="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-3">
-            <div className="flex items-center gap-2 bg-gray-900 p-2 rounded-lg border border-gray-700">
-                <Search size={16} className="text-gray-500" />
-                <input type="text" placeholder="ユーザーを検索..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="bg-transparent text-sm text-white w-full focus:outline-none" />
-            </div>
-            <div className="max-h-48 overflow-y-auto space-y-1 custom-scrollbar">
-                {filteredUsers.length > 0 ? filteredUsers.map(u => {
-                  const isFollowing = followingUsers.includes(u.uid);
-                  return (
-                    <div key={u.uid} onClick={() => toggleFollowingUser(u.uid)} className={`flex items-center justify-between p-3 rounded-lg cursor-pointer transition-colors border ${isFollowing ? 'bg-blue-500/10 border-blue-500/30' : 'bg-gray-900 border-gray-800 hover:bg-gray-800'}`}>
-                      <div className="flex items-center gap-3">
-                        <div className={`p-1.5 rounded-full ${isFollowing ? 'bg-blue-500 text-white' : 'bg-gray-800 text-gray-500'}`}>
-                          {isFollowing ? <Check size={14} /> : <PlusCircle size={14} />}
+                    <div className="bg-gray-900/50 p-5 rounded-3xl border border-gray-800 space-y-5">
+                        <label className="text-lg font-black text-gray-500 uppercase tracking-widest block">目標売上の設定</label>
+                        <div className="grid grid-cols-1 gap-5">
+                            <div>
+                                <label className="text-sm font-bold text-gray-400 mb-2 block uppercase tracking-widest">月間目標</label>
+                                <div className="flex items-center gap-3">
+                                    <span className="text-2xl font-black text-blue-400">¥</span>
+                                    <input 
+                                        type="text" 
+                                        inputMode="numeric"
+                                        value={monthlyGoalStr} 
+                                        onChange={(e) => setMonthlyGoalStr(toCommaSeparated(e.target.value))} 
+                                        className="bg-gray-800 text-white text-[clamp(1.6rem,6vw,2.2rem)] font-black w-full outline-none p-3 rounded-2xl border border-gray-700"
+                                    />
+                                </div>
+                            </div>
+                            <div>
+                                <label className="text-sm font-bold text-gray-400 mb-2 block uppercase tracking-widest">日別デフォルト目標</label>
+                                <div className="flex items-center gap-3">
+                                    <span className="text-2xl font-black text-amber-400">¥</span>
+                                    <input 
+                                        type="text" 
+                                        inputMode="numeric"
+                                        value={defaultDailyGoalStr} 
+                                        onChange={(e) => setDefaultDailyGoalStr(toCommaSeparated(e.target.value))} 
+                                        className="bg-gray-800 text-white text-[clamp(1.6rem,6vw,2.2rem)] font-black w-full outline-none p-3 rounded-2xl border border-gray-700"
+                                    />
+                                </div>
+                            </div>
                         </div>
-                        <span className={`text-sm font-bold ${isFollowing ? 'text-white' : 'text-gray-500'}`}>{u.name}</span>
-                      </div>
-                      {isFollowing && <span className="text-[10px] font-bold text-blue-400">表示中</span>}
                     </div>
-                  );
-                }) : (
-                  <p className="text-center text-[10px] text-gray-600 py-4">ユーザーが見つかりません</p>
-                )}
-            </div>
-            <p className="text-[10px] text-gray-500 text-right">現在 {followingUsers.length} 名をフォロー中</p>
-          </div>
-        </div>
 
-        <div className="bg-gray-900/50 p-5 rounded-3xl border border-gray-800 space-y-5">
-          <label className="text-lg font-black text-gray-500 uppercase tracking-widest block">目標売上の設定</label>
-          <div className="grid grid-cols-1 gap-5">
-            <div>
-              <label className="text-sm font-bold text-gray-400 mb-2 block uppercase tracking-widest">月間目標</label>
-              <div className="flex items-center gap-3">
-                <span className="text-2xl font-black text-blue-400">¥</span>
-                <input 
-                  type="text" 
-                  inputMode="numeric"
-                  value={monthlyGoalStr} 
-                  onChange={(e) => setMonthlyGoalStr(toCommaSeparated(e.target.value))} 
-                  className="bg-gray-800 text-white text-[clamp(1.6rem,6vw,2.2rem)] font-black w-full outline-none p-3 rounded-2xl border border-gray-700"
-                />
-              </div>
-            </div>
-            <div>
-              <label className="text-sm font-bold text-gray-400 mb-2 block uppercase tracking-widest">日別デフォルト目標</label>
-              <div className="flex items-center gap-3">
-                <span className="text-2xl font-black text-amber-400">¥</span>
-                <input 
-                  type="text" 
-                  inputMode="numeric"
-                  value={defaultDailyGoalStr} 
-                  onChange={(e) => setDefaultDailyGoalStr(toCommaSeparated(e.target.value))} 
-                  className="bg-gray-800 text-white text-[clamp(1.6rem,6vw,2.2rem)] font-black w-full outline-none p-3 rounded-2xl border border-gray-700"
-                />
-              </div>
-            </div>
-          </div>
-        </div>
+                    <div className="grid grid-cols-2 gap-3">
+                        <div className="bg-gray-900/50 p-4 rounded-2xl border border-gray-800 relative">
+                            <label className="text-lg font-bold text-gray-400 mb-2 block uppercase tracking-widest">締め日</label>
+                            <div className="flex items-center gap-2">
+                                <select
+                                    value={shimebi}
+                                    onChange={(e) => setShimebi(e.target.value)}
+                                    className="bg-gray-800 text-white text-2xl font-black w-full outline-none p-2 rounded-xl border border-gray-700 appearance-none cursor-pointer"
+                                >
+                                    <option value="0">末日</option>
+                                    {Array.from({ length: 28 }).map((_, i) => (
+                                    <option key={i + 1} value={i + 1}>{i + 1}日</option>
+                                    ))}
+                                </select>
+                                <ChevronDown className="absolute right-6 top-12 pointer-events-none text-gray-500 w-6 h-6" />
+                            </div>
+                        </div>
+                        <div className="bg-gray-900/50 p-4 rounded-2xl border border-gray-800 relative">
+                            <label className="text-lg font-bold text-gray-400 mb-2 block uppercase tracking-widest text-nowrap">切替時間</label>
+                            <div className="flex items-center gap-2">
+                                <select 
+                                    value={businessStartHour} 
+                                    onChange={(e) => setBusinessStartHour(parseInt(e.target.value))}
+                                    className="bg-gray-800 text-white text-2xl font-black w-full outline-none p-2 rounded-xl border border-gray-700 appearance-none cursor-pointer"
+                                >
+                                    {Array.from({ length: 24 }).map((_, i) => (
+                                    <option key={i} value={i}>{String(i).padStart(2, '0')}:00</option>
+                                    ))}
+                                </select>
+                                <ChevronDown className="absolute right-6 top-12 pointer-events-none text-gray-500 w-6 h-6" />
+                            </div>
+                        </div>
+                    </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div className="bg-gray-900/50 p-4 rounded-2xl border border-gray-800 relative">
-            <label className="text-lg font-bold text-gray-400 mb-2 block uppercase tracking-widest">締め日</label>
-            <div className="flex items-center gap-2">
-              <select
-                value={shimebi}
-                onChange={(e) => setShimebi(e.target.value)}
-                className="bg-gray-800 text-white text-2xl font-black w-full outline-none p-2 rounded-xl border border-gray-700 appearance-none cursor-pointer"
-              >
-                <option value="0">末日</option>
-                {Array.from({ length: 28 }).map((_, i) => (
-                  <option key={i + 1} value={i + 1}>{i + 1}日</option>
-                ))}
-              </select>
-              <ChevronDown className="absolute right-6 top-12 pointer-events-none text-gray-500 w-6 h-6" />
-            </div>
-          </div>
-          <div className="bg-gray-900/50 p-4 rounded-2xl border border-gray-800 relative">
-            <label className="text-lg font-bold text-gray-400 mb-2 block uppercase tracking-widest text-nowrap">切替時間</label>
-            <div className="flex items-center gap-2">
-              <select 
-                value={businessStartHour} 
-                onChange={(e) => setBusinessStartHour(parseInt(e.target.value))}
-                className="bg-gray-800 text-white text-2xl font-black w-full outline-none p-2 rounded-xl border border-gray-700 appearance-none cursor-pointer"
-              >
-                {Array.from({ length: 24 }).map((_, i) => (
-                  <option key={i} value={i}>{String(i).padStart(2, '0')}:00</option>
-                ))}
-              </select>
-              <ChevronDown className="absolute right-6 top-12 pointer-events-none text-gray-500 w-6 h-6" />
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-gray-900/50 p-5 rounded-3xl border border-gray-800">
-          <label className="text-lg font-black text-gray-500 uppercase tracking-widest mb-5 block">支払い項目の管理</label>
-          <div className="space-y-3 mb-5">
-            {enabledMethods.map((m, idx) => (
-              <div key={m} className="flex flex-col gap-2 bg-[#1A2536] border border-gray-700 p-3 rounded-2xl">
-                <div className="flex items-center gap-3">
-                  <input 
-                    type="text"
-                    value={customLabels[m] !== undefined ? customLabels[m] : ""} 
-                    placeholder={PAYMENT_LABELS[m]}
-                    onChange={(e) => handleLabelChange(m, e.target.value)}
-                    className="w-1/2 bg-gray-900 text-white text-lg font-black px-3 py-2 rounded-xl border border-gray-700 outline-none focus:border-blue-500"
-                  />
-                  <div className="flex-1 flex justify-end gap-2">
-                    <button onClick={() => moveMethod(idx, 'up')} disabled={idx === 0} className="p-2 bg-gray-800 rounded-xl text-gray-400 disabled:opacity-20 active:scale-90"><ArrowUp className="w-5 h-5" /></button>
-                    <button onClick={() => moveMethod(idx, 'down')} disabled={idx === enabledMethods.length - 1} className="p-2 bg-gray-800 rounded-xl text-gray-400 disabled:opacity-20 active:scale-90"><ArrowDown className="w-5 h-5" /></button>
-                    <button onClick={() => togglePaymentMethod(m)} className="p-2 bg-red-500/20 text-red-500 rounded-xl active:scale-90"><X className="w-5 h-5" /></button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-          
-          <div className="border-t border-gray-800 pt-4">
-            <p className="text-sm font-bold text-gray-500 uppercase mb-4 tracking-widest">非表示の項目</p>
-            <div className="grid grid-cols-2 gap-3">
-              {(Object.keys(PAYMENT_LABELS) as PaymentMethod[]).filter(m => !enabledMethods.includes(m)).map(m => (
-                <button
-                  key={m}
-                  onClick={() => togglePaymentMethod(m)}
-                  className="p-3 bg-gray-800/50 border border-gray-700 rounded-2xl text-gray-500 text-base font-bold active:scale-95 text-left flex items-center justify-between"
-                >
-                  <span className="truncate mr-1">{customLabels[m] || PAYMENT_LABELS[m]}</span>
-                  <Check className="w-5 h-5 opacity-10 flex-shrink-0" />
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* 乗車区分の表示設定 */}
-        <div className="bg-gray-900/50 p-5 rounded-3xl border border-gray-800">
-            <label className="text-lg font-black text-gray-500 uppercase tracking-widest mb-3 block flex items-center gap-2">
-                <Car className="w-5 h-5"/> 売上画面の乗車区分
-            </label>
-            <div className="grid grid-cols-3 gap-2">
-                {ALL_RIDE_TYPES.map(r => (
-                    <button 
-                        key={r} 
-                        onClick={() => toggleRideType(r)} 
-                        className={`p-2 rounded-xl text-xs font-bold border transition-all ${
-                            enabledRideTypes.includes(r) 
-                            ? 'bg-amber-500 text-black border-amber-400' 
-                            : 'bg-gray-800 text-gray-500 border-gray-700'
-                        }`}
-                    >
-                        {RIDE_LABELS[r]}
-                    </button>
-                ))}
-            </div>
-        </div>
-
-        <div className="bg-gray-900/50 p-5 rounded-3xl border border-gray-800 shadow-inner">
-          <div className="flex flex-col mb-4">
-            <div className="flex justify-between items-center">
-              <label className="text-lg font-black text-gray-500 uppercase tracking-widest">出勤予定</label>
-            </div>
-            <div className="mt-2 text-right">
-               <span className="text-xs font-bold text-gray-400">
-                 {displayScheduleMonth} の出勤予定: <span className="text-white text-sm">{dutyCountInView}日</span>
-               </span>
-            </div>
-            <div className="mt-4 flex items-center justify-between bg-gray-950 rounded-2xl p-2 border border-gray-800">
-              <button onClick={() => setViewDate(new Date(viewDate.setMonth(viewDate.getMonth() - 1)))} className="p-3 text-gray-400 active:scale-90"><ChevronLeft className="w-6 h-6" /></button>
-              <span className="text-xl font-black text-white">{displayScheduleMonth}</span>
-              <button onClick={() => setViewDate(new Date(viewDate.setMonth(viewDate.getMonth() + 1)))} className="p-3 text-gray-400 active:scale-90"><ChevronRight className="w-6 h-6" /></button>
-            </div>
-          </div>
-          
-          <div className="grid grid-cols-7 gap-2">
-            {['日', '月', '火', '水', '木', '金', '土'].map(w => (
-              <div key={w} className="text-xl text-center font-black text-gray-500 mb-2">{w}</div>
-            ))}
-            {Array.from({ length: calendarDates[0]?.getDay() || 0 }).map((_, i) => <div key={i} />)}
-            {calendarDates.map(date => {
-              const dateStr = formatDate(date);
-              const isDuty = dutyDays.includes(dateStr);
-              const isToday = dateStr === todayStr;
-              return (
-                <button
-                  key={dateStr}
-                  onClick={() => toggleDutyDay(dateStr)}
-                  className={`relative aspect-square rounded-2xl flex items-center justify-center border transition-all ${
-                    isDuty ? 'bg-amber-500 border-amber-400 text-black' : 'bg-gray-800 border-gray-700 text-gray-400'
-                  } ${isToday ? 'ring-4 ring-blue-500 ring-offset-2 ring-offset-[#131C2B]' : ''} active:scale-95`}
-                >
-                  <span className="text-base font-black">{date.getDate()}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* CSVインポートセクション（管理者のみ機能有効、それ以外はメッセージ） */}
-        {onImportRecords && (
-            isAdmin ? (
-                <CsvImportSection 
-                    onImport={onImportRecords} 
-                    isAdmin={isAdmin} 
-                    users={otherUsers} 
-                />
-            ) : (
-                <div className="bg-gray-900/50 p-5 rounded-3xl border border-gray-800 space-y-4">
-                    <label className="text-lg font-black text-gray-500 uppercase tracking-widest block flex items-center gap-2">
-                        <FileUp className="w-5 h-5"/> 過去データの取り込み
-                    </label>
-                    <div className="p-4 bg-gray-950 rounded-2xl border border-gray-700 text-center">
-                        <p className="text-sm font-bold text-gray-400">この機能は管理者専用です。</p>
-                        <p className="text-xs text-gray-500 mt-1">希望される方は管理者までご連絡ください。</p>
+                    <div className="bg-gray-900/50 p-5 rounded-3xl border border-gray-800 shadow-inner">
+                        <div className="flex flex-col mb-4">
+                            <div className="flex justify-between items-center">
+                                <label className="text-lg font-black text-gray-500 uppercase tracking-widest">出勤予定</label>
+                            </div>
+                            <div className="mt-2 text-right">
+                                <span className="text-xs font-bold text-gray-400">
+                                    {displayScheduleMonth} の出勤予定: <span className="text-white text-sm">{dutyCountInView}日</span>
+                                </span>
+                            </div>
+                            <div className="mt-4 flex items-center justify-between bg-gray-950 rounded-2xl p-2 border border-gray-800">
+                                <button onClick={() => setViewDate(new Date(viewDate.setMonth(viewDate.getMonth() - 1)))} className="p-3 text-gray-400 active:scale-90"><ChevronLeft className="w-6 h-6" /></button>
+                                <span className="text-xl font-black text-white">{displayScheduleMonth}</span>
+                                <button onClick={() => setViewDate(new Date(viewDate.setMonth(viewDate.getMonth() + 1)))} className="p-3 text-gray-400 active:scale-90"><ChevronRight className="w-6 h-6" /></button>
+                            </div>
+                        </div>
+                        
+                        <div className="grid grid-cols-7 gap-2">
+                            {['日', '月', '火', '水', '木', '金', '土'].map(w => (
+                                <div key={w} className="text-xl text-center font-black text-gray-500 mb-2">{w}</div>
+                            ))}
+                            {Array.from({ length: calendarDates[0]?.getDay() || 0 }).map((_, i) => <div key={i} />)}
+                            {calendarDates.map(date => {
+                                const dateStr = formatDate(date);
+                                const isDuty = dutyDays.includes(dateStr);
+                                const isToday = dateStr === todayStr;
+                                return (
+                                    <button
+                                        key={dateStr}
+                                        onClick={() => toggleDutyDay(dateStr)}
+                                        className={`relative aspect-square rounded-2xl flex items-center justify-center border transition-all ${
+                                            isDuty ? 'bg-amber-500 border-amber-400 text-black' : 'bg-gray-800 border-gray-700 text-gray-400'
+                                        } ${isToday ? 'ring-4 ring-blue-500 ring-offset-2 ring-offset-[#131C2B]' : ''} active:scale-95`}
+                                    >
+                                        <span className="text-base font-black">{date.getDate()}</span>
+                                    </button>
+                                );
+                            })}
+                        </div>
                     </div>
                 </div>
-            )
+            )}
+
+            {/* --- 表示設定タブ --- */}
+            {activeTab === 'display' && (
+                <div className="space-y-6 animate-in fade-in slide-in-from-right-2 duration-200">
+                    {/* プライバシー設定セクション */}
+                    <div className="bg-gray-900/50 p-5 rounded-3xl border border-gray-800 space-y-4">
+                        <label className="text-lg font-black text-gray-500 uppercase tracking-widest block flex items-center gap-2">
+                            <Lock className="w-5 h-5"/> 稼働状況の公開設定
+                        </label>
+                        <div className="p-3 bg-blue-900/10 border border-blue-500/20 rounded-xl text-[10px] text-blue-300 mb-2">
+                            <p className="mb-1">※売上ランキングは設定に関わらず全員に公開されます。</p>
+                            <p>※稼働状況（現在地や現在のステータス）の表示範囲を選択してください。</p>
+                        </div>
+                        
+                        <div className="grid grid-cols-3 gap-2">
+                            <button onClick={() => setVisibilityMode('PUBLIC')} className={`flex flex-col items-center gap-2 p-3 rounded-xl border transition-all ${visibilityMode === 'PUBLIC' ? 'bg-green-500/10 border-green-500 text-green-400' : 'bg-gray-800 border-gray-700 text-gray-500 hover:bg-gray-700'}`}>
+                                <Globe size={24} />
+                                <div className="text-center"><p className="text-xs font-bold">全員に公開</p><p className="text-[9px] opacity-70">制限なし</p></div>
+                            </button>
+                            <button onClick={() => setVisibilityMode('CUSTOM')} className={`flex flex-col items-center gap-2 p-3 rounded-xl border transition-all ${visibilityMode === 'CUSTOM' ? 'bg-amber-500/10 border-amber-500 text-amber-400' : 'bg-gray-800 border-gray-700 text-gray-500 hover:bg-gray-700'}`}>
+                                <Users size={24} />
+                                <div className="text-center"><p className="text-xs font-bold">限定公開</p><p className="text-[9px] opacity-70">指定した人のみ</p></div>
+                            </button>
+                            <button onClick={() => setVisibilityMode('PRIVATE')} className={`flex flex-col items-center gap-2 p-3 rounded-xl border transition-all ${visibilityMode === 'PRIVATE' ? 'bg-red-500/10 border-red-500 text-red-400' : 'bg-gray-800 border-gray-700 text-gray-500 hover:bg-gray-700'}`}>
+                                <Lock size={24} />
+                                <div className="text-center"><p className="text-xs font-bold">非公開</p><p className="text-[9px] opacity-70">誰にも見せない</p></div>
+                            </button>
+                        </div>
+
+                        {/* CUSTOMモードの場合のみ、ユーザー選択リストを表示 */}
+                        {visibilityMode === 'CUSTOM' && (
+                            <div className="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-3 animate-in fade-in slide-in-from-top-2">
+                                <div className="flex items-center gap-2 bg-gray-900 p-2 rounded-lg border border-gray-700">
+                                    <Search size={16} className="text-gray-500" />
+                                    <input type="text" placeholder="ユーザーを検索..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="bg-transparent text-sm text-white w-full focus:outline-none" />
+                                </div>
+                                <div className="max-h-48 overflow-y-auto space-y-1 custom-scrollbar">
+                                    {filteredUsers.length > 0 ? filteredUsers.map(u => {
+                                        const isAllowed = allowedViewers.includes(u.uid);
+                                        return (
+                                            <div key={u.uid} onClick={() => toggleAllowedUser(u.uid)} className={`flex items-center justify-between p-3 rounded-lg cursor-pointer transition-colors border ${isAllowed ? 'bg-amber-500/10 border-amber-500/30' : 'bg-gray-900 border-gray-800 hover:bg-gray-800'}`}>
+                                                <div className="flex items-center gap-3">
+                                                    <div className={`p-1.5 rounded-full ${isAllowed ? 'bg-amber-500 text-black' : 'bg-gray-800 text-gray-500'}`}>
+                                                        {isAllowed ? <UserCheck size={14} /> : <UserPlus size={14} />}
+                                                    </div>
+                                                    <span className={`text-sm font-bold ${isAllowed ? 'text-white' : 'text-gray-500'}`}>{u.name}</span>
+                                                </div>
+                                                {isAllowed && <Check size={16} className="text-amber-500" />}
+                                            </div>
+                                        );
+                                    }) : (
+                                        <p className="text-center text-[10px] text-gray-600 py-4">ユーザーが見つかりません</p>
+                                    )}
+                                </div>
+                                <p className="text-[10px] text-gray-500 text-right">現在 {allowedViewers.length} 名にのみ公開中</p>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* 表示するユーザーの設定（フォロー機能） */}
+                    <div className="bg-gray-900/50 p-5 rounded-3xl border border-gray-800 space-y-4">
+                        <label className="text-lg font-black text-gray-500 uppercase tracking-widest block flex items-center gap-2">
+                            <Users className="w-5 h-5"/> 表示するユーザーの選択
+                        </label>
+                        <div className="p-3 bg-gray-800/50 border border-gray-700 rounded-xl text-[10px] text-gray-400 mb-2">
+                            <p>※あなたが稼働状況を表示したい（フォローする）ユーザーを選択してください。</p>
+                            <p>※相手が公開を許可している場合のみ表示されます。</p>
+                        </div>
+
+                        <div className="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-3">
+                            <div className="flex items-center gap-2 bg-gray-900 p-2 rounded-lg border border-gray-700">
+                                <Search size={16} className="text-gray-500" />
+                                <input type="text" placeholder="ユーザーを検索..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="bg-transparent text-sm text-white w-full focus:outline-none" />
+                            </div>
+                            <div className="max-h-48 overflow-y-auto space-y-1 custom-scrollbar">
+                                {filteredUsers.length > 0 ? filteredUsers.map(u => {
+                                    const isFollowing = followingUsers.includes(u.uid);
+                                    return (
+                                        <div key={u.uid} onClick={() => toggleFollowingUser(u.uid)} className={`flex items-center justify-between p-3 rounded-lg cursor-pointer transition-colors border ${isFollowing ? 'bg-blue-500/10 border-blue-500/30' : 'bg-gray-900 border-gray-800 hover:bg-gray-800'}`}>
+                                            <div className="flex items-center gap-3">
+                                                <div className={`p-1.5 rounded-full ${isFollowing ? 'bg-blue-500 text-white' : 'bg-gray-800 text-gray-500'}`}>
+                                                    {isFollowing ? <Check size={14} /> : <PlusCircle size={14} />}
+                                                </div>
+                                                <span className={`text-sm font-bold ${isFollowing ? 'text-white' : 'text-gray-500'}`}>{u.name}</span>
+                                            </div>
+                                            {isFollowing && <span className="text-[10px] font-bold text-blue-400">表示中</span>}
+                                        </div>
+                                    );
+                                }) : (
+                                    <p className="text-center text-[10px] text-gray-600 py-4">ユーザーが見つかりません</p>
+                                )}
+                            </div>
+                            <p className="text-[10px] text-gray-500 text-right">現在 {followingUsers.length} 名をフォロー中</p>
+                        </div>
+                    </div>
+
+                    <div className="bg-gray-900/50 p-5 rounded-3xl border border-gray-800">
+                        <label className="text-lg font-black text-gray-500 uppercase tracking-widest mb-5 block">支払い項目の管理</label>
+                        <div className="space-y-3 mb-5">
+                            {enabledMethods.map((m, idx) => (
+                            <div key={m} className="flex flex-col gap-2 bg-[#1A2536] border border-gray-700 p-3 rounded-2xl">
+                                <div className="flex items-center gap-3">
+                                    <input 
+                                        type="text"
+                                        value={customLabels[m] !== undefined ? customLabels[m] : ""} 
+                                        placeholder={PAYMENT_LABELS[m]}
+                                        onChange={(e) => handleLabelChange(m, e.target.value)}
+                                        className="w-1/2 bg-gray-900 text-white text-lg font-black px-3 py-2 rounded-xl border border-gray-700 outline-none focus:border-blue-500"
+                                    />
+                                    <div className="flex-1 flex justify-end gap-2">
+                                        <button onClick={() => moveMethod(idx, 'up')} disabled={idx === 0} className="p-2 bg-gray-800 rounded-xl text-gray-400 disabled:opacity-20 active:scale-90"><ArrowUp className="w-5 h-5" /></button>
+                                        <button onClick={() => moveMethod(idx, 'down')} disabled={idx === enabledMethods.length - 1} className="p-2 bg-gray-800 rounded-xl text-gray-400 disabled:opacity-20 active:scale-90"><ArrowDown className="w-5 h-5" /></button>
+                                        <button onClick={() => togglePaymentMethod(m)} className="p-2 bg-red-500/20 text-red-500 rounded-xl active:scale-90"><X className="w-5 h-5" /></button>
+                                    </div>
+                                </div>
+                            </div>
+                            ))}
+                        </div>
+                        
+                        <div className="border-t border-gray-800 pt-4">
+                            <p className="text-sm font-bold text-gray-500 uppercase mb-4 tracking-widest">非表示の項目</p>
+                            <div className="grid grid-cols-2 gap-3">
+                            {(Object.keys(PAYMENT_LABELS) as PaymentMethod[]).filter(m => !enabledMethods.includes(m)).map(m => (
+                                <button
+                                    key={m}
+                                    onClick={() => togglePaymentMethod(m)}
+                                    className="p-3 bg-gray-800/50 border border-gray-700 rounded-2xl text-gray-500 text-base font-bold active:scale-95 text-left flex items-center justify-between"
+                                >
+                                    <span className="truncate mr-1">{customLabels[m] || PAYMENT_LABELS[m]}</span>
+                                    <Check className="w-5 h-5 opacity-10 flex-shrink-0" />
+                                </button>
+                            ))}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* 乗車区分の表示設定 */}
+                    <div className="bg-gray-900/50 p-5 rounded-3xl border border-gray-800">
+                        <label className="text-lg font-black text-gray-500 uppercase tracking-widest mb-3 block flex items-center gap-2">
+                            <Car className="w-5 h-5"/> 売上画面の乗車区分
+                        </label>
+                        <div className="grid grid-cols-3 gap-2">
+                            {ALL_RIDE_TYPES.map(r => (
+                                <button 
+                                    key={r} 
+                                    onClick={() => toggleRideType(r)} 
+                                    className={`p-2 rounded-xl text-xs font-bold border transition-all ${
+                                        enabledRideTypes.includes(r) 
+                                        ? 'bg-amber-500 text-black border-amber-400' 
+                                        : 'bg-gray-800 text-gray-500 border-gray-700'
+                                    }`}
+                                >
+                                    {RIDE_LABELS[r]}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* --- 管理者タブ --- */}
+            {activeTab === 'admin' && isAdmin && (
+                <div className="space-y-6 animate-in fade-in slide-in-from-right-2 duration-200">
+                    <div className="bg-purple-900/20 p-4 rounded-2xl border border-purple-500/30">
+                        <h4 className="text-sm font-black text-purple-300 mb-3 flex items-center gap-2">
+                            <Users className="w-4 h-4" /> ユーザー切り替え (代理操作)
+                        </h4>
+                        <p className="text-[10px] text-gray-400 mb-4">
+                            選択したユーザーとしてログインしているかのように画面を切り替えます。<br/>
+                            <span className="text-red-400 font-bold">※データの閲覧・編集が可能です。取り扱いに注意してください。</span>
+                        </p>
+                        <div className="space-y-2 max-h-[300px] overflow-y-auto custom-scrollbar">
+                            {adminUserList.map(u => (
+                                <button 
+                                    key={u.uid}
+                                    onClick={() => onImpersonate && onImpersonate(u.uid)}
+                                    className="w-full bg-gray-900 hover:bg-gray-800 p-3 rounded-xl flex justify-between items-center border border-gray-700 active:scale-95 transition-all"
+                                >
+                                    <div className="text-left">
+                                        <span className="block text-sm font-bold text-white">{u.name || '名称未設定'}</span>
+                                        <span className="text-[10px] text-gray-500">{u.uid}</span>
+                                    </div>
+                                    <div className="text-right">
+                                        <span className="text-[10px] bg-gray-800 px-2 py-1 rounded text-gray-400">
+                                            {u.lastUpdated ? new Date(u.lastUpdated).toLocaleDateString() : '-'}
+                                        </span>
+                                    </div>
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* CSVインポートセクション（管理者のみ機能有効、それ以外はメッセージ） */}
+                    {onImportRecords && (
+                        <CsvImportSection 
+                            onImport={onImportRecords} 
+                            isAdmin={isAdmin} 
+                            users={otherUsers} 
+                        />
+                    )}
+                </div>
+            )}
+        </div>
+
+        {/* 保存ボタン (管理者タブ以外で表示、または共通で表示して保存処理を実行) */}
+        {activeTab !== 'admin' && (
+            <button 
+              onClick={saveSettings}
+              className="w-full bg-amber-500 py-4 rounded-2xl font-black text-2xl text-black shadow-lg active:scale-95 transition-transform mt-5"
+            >
+              保存
+            </button>
         )}
-
-        <button 
-          onClick={saveSettings}
-          className="w-full bg-amber-500 py-4 rounded-2xl font-black text-2xl text-black shadow-lg active:scale-95 transition-transform mt-5"
-        >
-          保存
-        </button>
 
         {/* ログアウトボタン */}
         <div className="pt-6 border-t border-gray-800">
@@ -669,7 +745,6 @@ export const SettingsModal: React.FC<{
     </ModalWrapper>
   );
 };
-
 // --- Daily Report Modal ---
 
 export const DailyReportModal: React.FC<{
@@ -766,6 +841,8 @@ export const RecordModal: React.FC<{
   
   // ★追加: 乗り場選択用State
   const [standSelection, setStandSelection] = useState<TaxiStandDef | null>(null);
+  // ★追加: ホテル選択用State
+  const [hotelSelection, setHotelSelection] = useState<string | null>(null);
 
   const rideTypeRef = useRef<HTMLDivElement>(null);
   const amountSectionRef = useRef<HTMLDivElement>(null);
@@ -846,10 +923,19 @@ export const RecordModal: React.FC<{
             setPickup(formatted); 
             setPickupCoords(coordsString); 
             
-            // ★乗り場判定ロジック
-            const stand = findTaxiStand(formatted);
-            if (stand) {
-                setStandSelection(stand);
+            // ★変更: まずホテル判定を行う
+            const detectedHotel = findHotel(formatted);
+            if (detectedHotel) {
+                setHotelSelection(detectedHotel);
+                // 裏で乗り場判定もしておき、ホテルで「いいえ」が押された時に備える
+                const stand = findTaxiStand(formatted);
+                if (stand) setStandSelection(stand);
+            } else {
+                // ホテルでなければ乗り場判定
+                const stand = findTaxiStand(formatted);
+                if (stand) {
+                    setStandSelection(stand);
+                }
             }
         }
         else if (type === 'dropoff') { setDropoff(formatted); setDropoffCoords(coordsString); }
@@ -965,39 +1051,97 @@ export const RecordModal: React.FC<{
       }
   };
 
-  return (
+return (
     <div className="fixed inset-0 z-[110] bg-black/90 flex flex-col justify-end animate-in fade-in duration-200" onClick={onClose}>
       <div className="w-full max-w-md mx-auto bg-[#131C2B] rounded-t-[32px] p-5 shadow-2xl space-y-5 border-t border-gray-700" onClick={(e) => e.stopPropagation()}>
           
-          {standSelection ? (
-              // ★乗り場選択画面
-              <div className="space-y-6 py-6 animate-in slide-in-from-bottom-4">
-                  <div className="text-center space-y-2">
-                      <div className="bg-blue-500/20 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-2 animate-bounce">
-                          <MapIcon className="w-8 h-8 text-blue-400" />
+          {hotelSelection ? (
+              // ★ホテル確認画面 (デザイン統一版)
+              <div className="space-y-6 py-4 animate-in slide-in-from-bottom-4 flex flex-col h-full">
+                  <div className="text-center space-y-2 mb-2 mt-4">
+                      {/* アイコン: シアン系 */}
+                      <div className="bg-cyan-500/20 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4 shadow-[0_0_20px_rgba(6,182,212,0.3)] animate-pulse">
+                          <Building2 className="w-10 h-10 text-cyan-400" />
                       </div>
-                      <h3 className="text-2xl font-black text-white">{standSelection.name} からですか？</h3>
-                      <p className="text-sm font-bold text-gray-400">乗り場番号か場所を選択してください</p>
+                      <div>
+                        <h3 className="text-3xl font-black text-white leading-tight tracking-tight mb-2">{hotelSelection}</h3>
+                        <p className="text-lg font-bold text-cyan-200/70">ですか？</p>
+                      </div>
                   </div>
                   
-                  <div className="grid grid-cols-2 gap-3">
+                  {/* YESボタン: 乗り場ボタンと同じ「黒背景・シアン枠」スタイル */}
+                  <div className="flex-1 content-start space-y-4 px-4">
+                      <button
+                          onClick={() => {
+                              setPickup(hotelSelection); // 住所をホテル名で上書き
+                              setHotelSelection(null);   // ホテル選択終了
+                              setStandSelection(null);   // 乗り場選択もキャンセル
+                          }}
+                          className="relative w-full overflow-hidden bg-black hover:bg-gray-900 border-2 border-cyan-500/50 hover:border-cyan-400 text-white font-black py-6 rounded-3xl text-2xl transition-all active:scale-95 shadow-xl group"
+                      >
+                          <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"/>
+                          <div className="relative z-10 flex items-center justify-center gap-3">
+                             <CheckCircle2 className="w-8 h-8 text-cyan-400" />
+                             <span>はい、そうです</span>
+                          </div>
+                      </button>
+                  </div>
+                  
+                  {/* NOボタン: 乗り場選択のキャンセルと同じ「赤〜ピンクグラデーション」スタイル */}
+                  <div className="pt-6 mt-auto">
+                    <button 
+                        onClick={() => setHotelSelection(null)} 
+                        className="group w-full py-5 bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-500 hover:to-pink-500 text-white font-black rounded-2xl text-lg border border-rose-400/50 active:scale-95 transition-all shadow-[0_0_20px_rgba(225,29,72,0.4)] flex items-center justify-between px-6"
+                    >
+                        <span className="flex flex-col items-start leading-none gap-1">
+                            <span className="text-[10px] opacity-80 font-bold tracking-widest">NO</span>
+                            <span>いいえ、違います</span>
+                        </span>
+                        <ChevronRight className="w-6 h-6 text-white group-hover:translate-x-1 transition-transform" />
+                    </button>
+                  </div>
+              </div>
+          ) : standSelection ? (
+              // ★乗り場選択画面
+              <div className="space-y-6 py-4 animate-in slide-in-from-bottom-4 flex flex-col h-full">
+                  <div className="text-center space-y-2 mb-2">
+                      <div className="bg-cyan-500/20 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-3 shadow-[0_0_20px_rgba(6,182,212,0.3)]">
+                          <MapIcon className="w-8 h-8 text-cyan-400" />
+                      </div>
+                      <h3 className="text-3xl font-black text-white leading-tight tracking-tight">{standSelection.name}</h3>
+                      <p className="text-sm font-bold text-cyan-200/70 bg-cyan-900/30 py-1 px-3 rounded-full inline-block">乗り場番号かを選択</p>
+                  </div>
+                  
+                  {/* 選択肢: 枠内を黒にして引き締める */}
+                  <div className="grid grid-cols-2 gap-4 flex-1 content-start">
                       {standSelection.options.map(opt => (
                           <button
                               key={opt}
                               onClick={() => handleStandSelect(opt)}
-                              className="bg-gray-800 hover:bg-blue-900/50 border border-gray-700 hover:border-blue-500 text-white font-black py-4 rounded-xl text-lg transition-all active:scale-95"
-                          >
-                              {opt}
+                           className="relative overflow-hidden bg-black hover:bg-gray-900 border-2 border-cyan-500/50 hover:border-cyan-400 text-white font-black py-6 rounded-2xl text-2xl transition-all active:scale-95 shadow-lg group"
+      >
+                              {/* 内部でうっすら青く光るエフェクトは維持 */}
+                              <div className="absolute inset-0 bg-gradient-to-br from-cyan-500/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"/>
+                              <span className="relative z-10">{opt}</span>
                           </button>
                       ))}
                   </div>
                   
-                  <button 
-                      onClick={() => setStandSelection(null)}
-                      className="w-full py-4 text-gray-500 font-bold border-t border-gray-800 mt-2"
-                  >
-                      いいえ、通常の乗車です
-                  </button>
+                  {/* 「いいえ」ボタン: カラフルなグラデーションで差別化 */}
+                  <div className="pt-6 mt-auto">
+                    <button 
+                        onClick={() => setStandSelection(null)}
+                        className="group w-full py-5 bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-500 hover:to-pink-500 text-white font-black rounded-2xl text-lg border border-rose-400/50 active:scale-95 transition-all shadow-[0_0_20px_rgba(225,29,72,0.4)] flex items-center justify-between px-6"
+                    >
+                        <span className="flex flex-col items-start leading-none gap-1">
+                            <span className="text-[10px] opacity-80 font-bold tracking-widest">CANCEL</span>
+                            <span>いいえ、通常の流し乗車です</span>
+                        </span>
+                        <div className="bg-white/20 p-1.5 rounded-full">
+                            <ChevronRight className="w-6 h-6 text-white group-hover:translate-x-1 transition-transform" />
+                        </div>
+                    </button>
+                  </div>
               </div>
           ) : activeInput ? (
             <KeypadView 
