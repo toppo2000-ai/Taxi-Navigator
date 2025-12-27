@@ -1,26 +1,25 @@
 @echo off
-chcp 65001 > nul
 
 echo ==========================================
-echo  GitHubへのアップロードを開始します
+echo  GitHub Upload Tool
 echo ==========================================
 
-:: 1. 変更をステージング
+:: 1. Add files
 git add .
 
-:: 2. コミットメッセージの入力を求める
-set /p msg="コミットメッセージを入力してください（Enterで「Update」）: "
+:: 2. Input message (English text prevents encoding errors)
+set /p msg="Enter commit message (Press Enter for 'Update'): "
 
-:: 入力がなければ「Update」という名前にする
+:: Set default if empty
 if "%msg%"=="" set msg=Update
 
-:: 3. コミット実行
+:: 3. Commit
 git commit -m "%msg%"
 
-:: 4. プッシュ実行
+:: 4. Push
 git push
 
 echo ==========================================
-echo  完了しました！
+echo  DONE!
 echo ==========================================
 pause
