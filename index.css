@@ -1,0 +1,41 @@
+body {
+  background-color: #0A0E14;
+  color: white;
+  -webkit-tap-highlight-color: transparent;
+  /* スクロールバー非表示 (全ブラウザ対応) */
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  /* iOSでのバウンススクロール防止 */
+  overscroll-behavior-y: none;
+  /* 文字サイズ自動調整防止 */
+  -webkit-text-size-adjust: 100%;
+}
+
+body::-webkit-scrollbar {
+  display: none;
+}
+
+.modal-open {
+  overflow: hidden;
+}
+
+/* カスタムスクロールバーも非表示に上書き */
+.custom-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.custom-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* 浮遊アニメーションの定義 */
+@keyframes floating {
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-12px); }
+  100% { transform: translateY(0px); }
+}
+
+.animate-floating {
+  animation: floating 3.5s ease-in-out infinite;
+}

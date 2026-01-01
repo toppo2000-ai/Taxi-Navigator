@@ -1,0 +1,40 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ヘルパー関数: 管理者かどうかを判定
+    // 注意: get()を使う場合、そのドキュメントの読み取り権限が必要
+    // 管理者のドキュメントは自分自身なので、読み取り可能
+    // exists()で存在確認をしてからget()を使うことで、エラーを防ぐ
+    function isAdmin() {
+      return request.auth != null && 
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+    
+    // usersコレクション: ユーザーは自分のドキュメントのみ読み書き可能、管理者は全ユーザーを読み取れる
+    match /users/{userId} {
+      // 読み取り: 認証済みユーザーは自分のドキュメントを読み取れる、または管理者は全ユーザーを読み取れる
+      allow read: if request.auth != null && (request.auth.uid == userId || isAdmin());
+      
+      // 書き込み: 認証済みユーザーは自分のドキュメントを作成・更新できる、または管理者は全ユーザーを更新できる
+      allow create: if request.auth != null && request.auth.uid == userId;
+      allow update: if request.auth != null && (request.auth.uid == userId || isAdmin());
+      
+      // 削除: 自分のドキュメントのみ削除可能、または管理者は全ユーザーを削除可能
+      allow delete: if request.auth != null && (request.auth.uid == userId || isAdmin());
+    }
+    
+    // public_statusコレクション: 全員が読み取り可能、自分のドキュメントのみ書き込み可能
+    match /public_status/{userId} {
+      // 読み取り: 認証済みユーザーは全員読み取れる
+      allow read: if request.auth != null;
+      
+      // 書き込み: 認証済みユーザーは自分のドキュメントのみ作成・更新できる
+      allow create: if request.auth != null && request.auth.uid == userId;
+      allow update: if request.auth != null && request.auth.uid == userId;
+      
+      // 削除: 自分のドキュメントのみ削除可能、または管理者は全ユーザーを削除可能
+      allow delete: if request.auth != null && (request.auth.uid == userId || isAdmin());
+    }
+  }
+}
