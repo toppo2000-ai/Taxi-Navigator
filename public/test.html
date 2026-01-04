@@ -1,0 +1,725 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TAXI Navigator - タクシー運転手のための売上管理アプリ</title>
+  <meta name="description" content="タクシー運転手のための売上管理アプリ。簡単入力から詳細記録まで、営業をサポートする機能が満載。">
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            dark: '#0A0E14',
+            card: '#1A222C',
+          }
+        }
+      }
+    }
+  </script>
+  
+  <style>
+    @keyframes float {
+      0%, 100% { transform: translateY(0px); }
+      50% { transform: translateY(-10px); }
+    }
+    .float-animation {
+      animation: float 3s ease-in-out infinite;
+    }
+    @keyframes fadeInUp {
+      from {
+        opacity: 0;
+        transform: translateY(30px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+    .fade-in-up {
+      animation: fadeInUp 0.6s ease-out;
+    }
+    .gradient-text {
+      background: linear-gradient(135deg, #fcd34d, #f59e0b, #d97706);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+  </style>
+</head>
+<body class="bg-[#0A0E14] text-white font-sans">
+  
+  <!-- ヘッダー -->
+  <header class="fixed top-0 left-0 right-0 z-50 bg-[#0A0E14]/95 backdrop-blur-sm border-b border-gray-800">
+    <div class="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <div class="text-2xl font-black italic gradient-text">TAXI</div>
+        <div class="text-sm font-bold italic text-amber-500/80 uppercase tracking-widest">navigator</div>
+      </div>
+      <a href="https://pro-taxi-d3945.web.app" class="px-6 py-2 bg-amber-500 hover:bg-amber-600 text-gray-900 font-black rounded-full transition-all shadow-lg hover:shadow-amber-500/50">
+        無料で始める
+      </a>
+    </div>
+  </header>
+
+  <!-- ヒーローセクション -->
+  <section class="pt-32 pb-20 px-4 relative overflow-hidden">
+    <div class="max-w-6xl mx-auto">
+      <div class="grid md:grid-cols-2 gap-8 items-center">
+        <!-- 左側: テキスト -->
+        <div class="text-center md:text-left">
+          <h1 class="text-5xl md:text-7xl font-black mb-6 gradient-text fade-in-up">
+            タクシー運転手の<br class="md:hidden">営業を、<br class="hidden md:block">もっとスマートに
+          </h1>
+          <p class="text-xl md:text-2xl text-gray-300 mb-12 max-w-3xl mx-auto md:mx-0 fade-in-up" style="animation-delay: 0.2s">
+            売上管理からランキングまで。<br>TAXI Navigatorで、あなたの営業を効率化しませんか？
+          </p>
+          <div class="flex flex-col sm:flex-row gap-4 justify-center md:justify-start items-center fade-in-up" style="animation-delay: 0.4s">
+            <a href="https://pro-taxi-d3945.web.app" class="px-10 py-5 bg-amber-500 hover:bg-amber-600 text-gray-900 font-black text-xl rounded-full transition-all shadow-2xl hover:shadow-amber-500/50 transform hover:scale-105">
+              今すぐ無料で始める
+            </a>
+            <a href="#features" class="px-10 py-5 border-2 border-amber-500 text-amber-500 hover:bg-amber-500/10 font-black text-xl rounded-full transition-all">
+              機能を見る
+            </a>
+          </div>
+        </div>
+        <!-- 右側: キャラクター画像 -->
+        <div class="flex justify-center md:justify-end fade-in-up" style="animation-delay: 0.3s">
+          <div class="relative">
+            <div class="absolute inset-0 bg-amber-500/20 blur-3xl rounded-full"></div>
+            <img src="/navi-chibi.png" alt="TAXI Navigator キャラクター" class="relative w-64 md:w-80 h-auto float-animation" />
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 機能紹介セクション -->
+  <section id="features" class="py-20 px-4 bg-gradient-to-b from-[#0A0E14] to-[#131C2B]">
+    <div class="max-w-7xl mx-auto">
+      <h2 class="text-4xl md:text-5xl font-black text-center mb-4 gradient-text">
+        充実の機能で営業をサポート
+      </h2>
+      <p class="text-center text-gray-400 mb-16 text-lg">
+        あなたの営業スタイルに合わせて選べる2つの入力モード
+      </p>
+
+      <!-- 入力モード -->
+      <div class="grid md:grid-cols-2 gap-8 mb-20">
+        <!-- 簡易入力モード -->
+        <div class="bg-[#1A222C] rounded-3xl p-8 border-2 border-orange-500/30 hover:border-orange-500 transition-all shadow-xl hover:shadow-orange-500/20">
+          <div class="flex items-center gap-3 mb-4">
+            <div class="w-12 h-12 bg-orange-500/20 rounded-xl flex items-center justify-center">
+              <svg class="w-6 h-6 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+              </svg>
+            </div>
+            <h3 class="text-2xl font-black text-white">簡易入力モード</h3>
+          </div>
+          <p class="text-gray-300 mb-6 leading-relaxed">
+            1日の売上と営業回数をサッと記録。シンプルでスピーディーな入力が可能です。
+          </p>
+          <ul class="space-y-3">
+            <li class="flex items-start gap-3">
+              <svg class="w-5 h-5 text-orange-500 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
+              </svg>
+              <span class="text-gray-300">売上と営業回数を簡単入力</span>
+            </li>
+            <li class="flex items-start gap-3">
+              <svg class="w-5 h-5 text-orange-500 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
+              </svg>
+              <span class="text-gray-300">営業時間の記録</span>
+            </li>
+            <li class="flex items-start gap-3">
+              <svg class="w-5 h-5 text-orange-500 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
+              </svg>
+              <span class="text-gray-300">メモ機能付き</span>
+            </li>
+          </ul>
+        </div>
+
+        <!-- 詳細入力モード -->
+        <div class="bg-[#1A222C] rounded-3xl p-8 border-2 border-blue-500/30 hover:border-blue-500 transition-all shadow-xl hover:shadow-blue-500/20">
+          <div class="flex items-center gap-3 mb-4">
+            <div class="w-12 h-12 bg-blue-500/20 rounded-xl flex items-center justify-center">
+              <svg class="w-6 h-6 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+              </svg>
+            </div>
+            <h3 class="text-2xl font-black text-white">詳細入力モード</h3>
+          </div>
+          <p class="text-gray-300 mb-6 leading-relaxed">
+            1乗車ごとに詳細を記録。売上分析や乗降地の傾向など、すべての機能が利用可能です。
+          </p>
+          <ul class="space-y-3">
+            <li class="flex items-start gap-3">
+              <svg class="w-5 h-5 text-blue-500 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
+              </svg>
+              <span class="text-gray-300">乗降地の記録</span>
+            </li>
+            <li class="flex items-start gap-3">
+              <svg class="w-5 h-5 text-blue-500 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
+              </svg>
+              <span class="text-gray-300">決済方法の記録</span>
+            </li>
+            <li class="flex items-start gap-3">
+              <svg class="w-5 h-5 text-blue-500 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
+              </svg>
+              <span class="text-gray-300">詳細な売上分析</span>
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- 実際の画面イメージ -->
+      <div class="mb-20">
+        <h3 class="text-3xl font-black text-center mb-12 text-white">
+          実際の画面イメージ
+        </h3>
+        
+        <!-- ダッシュボードモック -->
+        <div class="bg-[#1A222C] rounded-3xl p-6 md:p-8 mb-8 border border-gray-700 shadow-2xl">
+          <div class="mb-6">
+            <h4 class="text-xl font-black text-white mb-2">ダッシュボード</h4>
+            <p class="text-gray-400 text-sm">営業状況を一目で把握</p>
+          </div>
+          
+          <!-- 統計カード -->
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div class="bg-[#0A0E14] rounded-2xl p-4 border border-gray-800">
+              <div class="text-gray-400 text-xs mb-1">月間売上</div>
+              <div class="text-xl md:text-2xl font-black text-white">¥680,000</div>
+            </div>
+            <div class="bg-[#0A0E14] rounded-2xl p-4 border border-gray-800">
+              <div class="text-gray-400 text-xs mb-1">目標</div>
+              <div class="text-xl md:text-2xl font-black text-white">¥1,500,000</div>
+            </div>
+            <div class="bg-[#0A0E14] rounded-2xl p-4 border border-gray-800">
+              <div class="text-gray-400 text-xs mb-1">1日平均</div>
+              <div class="text-xl md:text-2xl font-black text-white">¥45,333</div>
+            </div>
+            <div class="bg-[#0A0E14] rounded-2xl p-4 border border-gray-800">
+              <div class="text-gray-400 text-xs mb-1">達成率</div>
+              <div class="text-xl md:text-2xl font-black text-amber-500">45.3%</div>
+            </div>
+          </div>
+          
+          <!-- 進捗バー -->
+          <div class="mb-6">
+            <div class="flex justify-between text-sm mb-2">
+              <span class="text-gray-400">目標までの進捗</span>
+              <span class="text-amber-500 font-black">残り ¥820,000</span>
+            </div>
+            <div class="h-4 bg-gray-800 rounded-full overflow-hidden">
+              <div class="h-full bg-gradient-to-r from-amber-500 to-yellow-500 rounded-full" style="width: 45.3%"></div>
+            </div>
+          </div>
+          
+          <!-- カレンダー（簡易版） -->
+          <div class="bg-[#0A0E14] rounded-2xl p-4 border border-gray-800">
+            <div class="flex items-center justify-between mb-4">
+              <span class="text-white font-black">2026年1月</span>
+            </div>
+            <div class="grid grid-cols-7 gap-2">
+              <div class="text-center text-gray-500 text-xs font-bold py-2">日</div>
+              <div class="text-center text-gray-500 text-xs font-bold py-2">月</div>
+              <div class="text-center text-gray-500 text-xs font-bold py-2">火</div>
+              <div class="text-center text-gray-500 text-xs font-bold py-2">水</div>
+              <div class="text-center text-gray-500 text-xs font-bold py-2">木</div>
+              <div class="text-center text-gray-500 text-xs font-bold py-2">金</div>
+              <div class="text-center text-gray-500 text-xs font-bold py-2">土</div>
+              
+              <!-- カレンダー日付 -->
+              <div class="text-center py-2 text-gray-500 text-sm">21</div>
+              <div class="text-center py-2 text-white text-sm font-black bg-amber-500/20 rounded-lg">22</div>
+              <div class="text-center py-2 text-white text-sm font-black bg-amber-500/20 rounded-lg">23</div>
+              <div class="text-center py-2 text-white text-sm font-black bg-amber-500/20 rounded-lg">24</div>
+              <div class="text-center py-2 text-white text-sm">25</div>
+              <div class="text-center py-2 text-white text-sm font-black bg-amber-500/20 rounded-lg">26</div>
+              <div class="text-center py-2 text-white text-sm font-black bg-amber-500/20 rounded-lg">27</div>
+              <div class="text-center py-2 text-white text-sm font-black bg-amber-500/20 rounded-lg">28</div>
+              <div class="text-center py-2 text-white text-sm font-black bg-amber-500/20 rounded-lg">29</div>
+              <div class="text-center py-2 text-white text-sm">30</div>
+              <div class="text-center py-2 text-white text-sm font-black bg-amber-500/20 rounded-lg">31</div>
+              <div class="text-center py-2 text-white text-sm font-black bg-amber-500/20 rounded-lg">1</div>
+              <div class="text-center py-2 text-white text-sm font-black bg-amber-500/20 rounded-lg">2</div>
+              <div class="text-center py-2 text-white text-sm font-black bg-amber-500/20 rounded-lg">3</div>
+            </div>
+            <div class="mt-4 text-xs text-gray-500 text-center">
+              <span class="inline-block w-3 h-3 bg-amber-500/20 rounded mr-2"></span>
+              データ入力済み
+            </div>
+          </div>
+        </div>
+        
+        <!-- ランキングモック -->
+        <div class="bg-[#1A222C] rounded-3xl p-6 md:p-8 mb-8 border border-gray-700 shadow-2xl">
+          <div class="mb-6">
+            <h4 class="text-xl font-black text-white mb-2">ランキング</h4>
+            <p class="text-gray-400 text-sm">他の運転手と競い合う</p>
+          </div>
+          
+          <!-- タブ -->
+          <div class="flex gap-2 mb-6">
+            <button class="px-6 py-3 bg-amber-500 text-gray-900 font-black rounded-2xl">月間</button>
+            <button class="px-6 py-3 bg-gray-800 text-gray-400 font-black rounded-2xl">日別</button>
+          </div>
+          
+          <!-- ランキングリスト -->
+          <div class="space-y-3">
+            <div class="bg-[#0A0E14] rounded-2xl p-4 border border-amber-500/30 flex items-center gap-4">
+              <div class="w-10 h-10 bg-gradient-to-br from-amber-400 to-yellow-500 rounded-full flex items-center justify-center text-gray-900 font-black">1</div>
+              <div class="flex-1">
+                <div class="text-white font-black">山田 太郎</div>
+                <div class="text-gray-400 text-sm">¥3,200,000</div>
+              </div>
+              <div class="text-amber-500 font-black text-xl">🏆</div>
+            </div>
+            
+            <div class="bg-[#0A0E14] rounded-2xl p-4 border border-blue-500/30 flex items-center gap-4">
+              <div class="w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center text-white font-black">2</div>
+              <div class="flex-1">
+                <div class="text-white font-black">あなた</div>
+                <div class="text-gray-400 text-sm">¥680,000</div>
+              </div>
+              <div class="text-blue-500 font-black text-sm">45.3%</div>
+            </div>
+            
+            <div class="bg-[#0A0E14] rounded-2xl p-4 border border-gray-800 flex items-center gap-4">
+              <div class="w-10 h-10 bg-gray-700 rounded-full flex items-center justify-center text-gray-400 font-black">3</div>
+              <div class="flex-1">
+                <div class="text-white font-black">佐藤 花子</div>
+                <div class="text-gray-400 text-sm">¥2,380,000</div>
+              </div>
+              <div class="text-gray-500 font-black text-sm">79.3%</div>
+            </div>
+            
+            <div class="bg-[#0A0E14] rounded-2xl p-4 border border-gray-800 flex items-center gap-4">
+              <div class="w-10 h-10 bg-gray-700 rounded-full flex items-center justify-center text-gray-400 font-black">4</div>
+              <div class="flex-1">
+                <div class="text-white font-black">鈴木 一郎</div>
+                <div class="text-gray-400 text-sm">¥2,150,000</div>
+              </div>
+              <div class="text-gray-500 font-black text-sm">71.7%</div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 入力画面モック -->
+        <div class="bg-[#1A222C] rounded-3xl p-6 md:p-8 border border-gray-700 shadow-2xl">
+          <div class="mb-6">
+            <h4 class="text-xl font-black text-white mb-2">簡易入力画面</h4>
+            <p class="text-gray-400 text-sm">サッと記録、すぐに保存</p>
+          </div>
+          
+          <div class="bg-[#0A0E14] rounded-2xl p-6 border border-gray-800 space-y-4">
+            <div>
+              <label class="block text-gray-400 text-sm mb-2">売上</label>
+              <input type="text" value="125,000" disabled class="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-white font-black text-xl text-right" />
+            </div>
+            
+            <div>
+              <label class="block text-gray-400 text-sm mb-2">営業回数</label>
+              <input type="text" value="18" disabled class="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-white font-black text-xl text-right" />
+            </div>
+            
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-gray-400 text-sm mb-2">営業時間</label>
+                <input type="text" value="8時間30分" disabled class="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-white font-black text-right" />
+              </div>
+              <div>
+                <label class="block text-gray-400 text-sm mb-2">勤務日</label>
+                <input type="text" value="2026/01/15" disabled class="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-white font-black text-right" />
+              </div>
+            </div>
+            
+            <button class="w-full bg-amber-500 hover:bg-amber-600 text-gray-900 font-black py-4 rounded-xl text-lg">
+              保存する
+            </button>
+          </div>
+        </div>
+      </div>
+      
+      <!-- リアルタイム変動アピールセクション -->
+      <div class="mt-20 mb-12">
+        <div class="text-center mb-12">
+          <div class="flex justify-center mb-6">
+            <div class="relative">
+              <div class="absolute inset-0 bg-amber-500/20 blur-2xl rounded-full"></div>
+              <img src="/navi-loading.png" alt="ナビゲーター" class="relative w-32 h-32 md:w-40 md:h-40 float-animation" />
+            </div>
+          </div>
+          <h3 class="text-3xl md:text-4xl font-black mb-4 gradient-text">
+            目標達成に必要な売上をリアルタイムで把握
+          </h3>
+          <p class="text-xl text-gray-300 max-w-3xl mx-auto">
+            売上を入力すると、目標達成に必要な1日あたりの売上が自動計算されます。<br>
+            残り日数や現在の売上に応じて、リアルタイムで変動します。
+          </p>
+        </div>
+        
+        <!-- 簡易モードダッシュボードモック -->
+        <div class="bg-[#1A222C] rounded-3xl p-6 md:p-8 mb-8 border-2 border-orange-500/30 shadow-2xl relative overflow-hidden">
+          <!-- 背景装飾: キャラクター画像 -->
+          <div class="absolute top-4 right-4 opacity-10">
+            <img src="/taxi-character.png" alt="タクシーキャラクター" class="w-32 h-32 md:w-40 md:h-40 object-contain" />
+          </div>
+          <div class="relative z-10">
+            <div class="mb-6">
+              <h4 class="text-xl font-black text-white mb-2">簡易モード ダッシュボード</h4>
+              <p class="text-gray-400 text-sm">リアルタイムで変動する必要売上を確認</p>
+            </div>
+            
+            <div class="bg-[#0A0E14] rounded-2xl p-6 border border-gray-800">
+            <!-- ヘッダー -->
+            <div class="flex items-center justify-between mb-6">
+              <h5 class="text-white font-black text-lg">売上状況</h5>
+              <div class="bg-purple-500/20 text-purple-300 px-4 py-1.5 rounded-xl text-sm font-black">
+                2025/12/21 ~ 2026/01/20
+              </div>
+            </div>
+            
+            <!-- 現在の売上 -->
+            <div class="mb-6">
+              <div class="text-4xl md:text-5xl font-black text-white mb-2">¥339,820</div>
+              <div class="flex items-center justify-between">
+                <div class="text-gray-400 text-sm">残り出勤</div>
+                <div class="text-amber-500 font-black text-xl">15日</div>
+              </div>
+            </div>
+            
+            <!-- 必要売上（1日当たり） - リアルタイム変動を強調 -->
+            <div class="bg-gradient-to-r from-orange-500/20 to-amber-500/20 border-2 border-orange-500/50 rounded-2xl p-4 mb-4">
+              <div class="flex items-center justify-between mb-2">
+                <div class="text-white font-black">必要売上 (1日当たり)</div>
+                <svg class="w-5 h-5 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
+                </svg>
+              </div>
+              <div class="text-3xl font-black text-orange-500 mb-2">¥44,012</div>
+              <div class="text-xs text-gray-400">※残り日数や売上に応じてリアルタイムで変動</div>
+            </div>
+            
+            <!-- 進捗バー -->
+            <div class="mb-6">
+              <div class="h-6 bg-gray-800 rounded-full overflow-hidden mb-2">
+                <div class="h-full bg-gradient-to-r from-orange-500 to-amber-500 rounded-full flex items-center justify-center" style="width: 34%">
+                  <span class="text-xs font-black text-gray-900">34% 達成</span>
+                </div>
+              </div>
+              <div class="text-right text-sm text-gray-400">目標 ¥1,000,000</div>
+            </div>
+            
+            <!-- サマリーカード -->
+            <div class="grid grid-cols-2 gap-4">
+              <div class="bg-gray-800/50 rounded-xl p-4 border border-gray-700">
+                <div class="text-gray-400 text-xs mb-1">目標まで残り</div>
+                <div class="text-2xl font-black text-white">¥660,180</div>
+              </div>
+              <div class="bg-gray-800/50 rounded-xl p-4 border border-gray-700">
+                <div class="text-gray-400 text-xs mb-1">1日平均</div>
+                <div class="text-2xl font-black text-white">¥28,318</div>
+              </div>
+            </div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 詳細モードダッシュボードモック -->
+        <div class="bg-[#1A222C] rounded-3xl p-6 md:p-8 border-2 border-blue-500/30 shadow-2xl">
+          <div class="mb-6">
+            <h4 class="text-xl font-black text-white mb-2">詳細モード ダッシュボード</h4>
+            <p class="text-gray-400 text-sm">営業中にリアルタイムで進捗を確認</p>
+          </div>
+          
+          <div class="bg-[#0A0E14] rounded-2xl p-6 border border-gray-800">
+            <!-- ヘッダー -->
+            <div class="flex items-center justify-between mb-6">
+              <div>
+                <div class="flex items-center gap-2 mb-1">
+                  <div class="w-2 h-2 bg-green-500 rounded-full"></div>
+                  <span class="text-white font-black">営業中 0時間00分</span>
+                </div>
+                <div class="text-gray-400 text-sm">2026/01/01 (~12:54)</div>
+              </div>
+            </div>
+            
+            <!-- 現在の売上 -->
+            <div class="text-center mb-6">
+              <div class="text-5xl md:text-6xl font-black text-amber-500 mb-2">¥0</div>
+              <div class="text-gray-400 text-sm">税抜合計 ¥0</div>
+            </div>
+            
+            <!-- 今日の目標 -->
+            <div class="mb-6">
+              <div class="h-4 bg-gray-800 rounded-full mb-2">
+                <div class="h-full bg-gradient-to-r from-amber-500 to-yellow-500 rounded-full" style="width: 0%"></div>
+              </div>
+              <div class="flex justify-between items-center">
+                <span class="text-white font-black">0% 達成</span>
+                <span class="text-gray-400 text-sm">今日の目標 ¥50,000</span>
+              </div>
+            </div>
+            
+            <!-- KPIカード -->
+            <div class="grid grid-cols-2 gap-4">
+              <div class="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4">
+                <div class="text-gray-400 text-xs mb-1">時間あたりの売上</div>
+                <div class="text-xl font-black text-white">¥0</div>
+              </div>
+              <div class="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4">
+                <div class="text-gray-400 text-xs mb-1">乗車回数</div>
+                <div class="text-xl font-black text-white">0回</div>
+              </div>
+              <!-- リアルタイム変動を強調する2つのカード -->
+              <div class="bg-gradient-to-br from-red-500/20 to-orange-500/20 border-2 border-red-500/50 rounded-xl p-4">
+                <div class="text-gray-300 text-xs mb-1 flex items-center gap-1">
+                  <svg class="w-3 h-3 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                  </svg>
+                  月間必要 / 日
+                </div>
+                <div class="text-2xl font-black text-red-400 mb-1">¥47,156</div>
+                <div class="text-xs text-gray-400">リアルタイム計算</div>
+              </div>
+              <div class="bg-gradient-to-br from-red-500/20 to-orange-500/20 border-2 border-red-500/50 rounded-xl p-4">
+                <div class="text-gray-300 text-xs mb-1 flex items-center gap-1">
+                  <svg class="w-3 h-3 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                  </svg>
+                  目標まで残り
+                </div>
+                <div class="text-2xl font-black text-red-400 mb-1">¥50,000</div>
+                <div class="text-xs text-gray-400">リアルタイム計算</div>
+              </div>
+            </div>
+            
+            <!-- アクションボタン -->
+            <div class="grid grid-cols-2 gap-4 mt-6">
+              <button class="bg-blue-500/20 border border-blue-500 text-blue-400 font-black py-3 rounded-xl">
+                休憩
+              </button>
+              <button class="bg-amber-500 text-gray-900 font-black py-3 rounded-xl">
+                乗車記録
+              </button>
+            </div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- リアルタイム変動の説明 -->
+        <div class="bg-gradient-to-r from-amber-500/10 to-orange-500/10 border-2 border-amber-500/30 rounded-3xl p-8 text-center">
+          <h4 class="text-2xl font-black text-white mb-4">
+            💡 リアルタイムで変動する必要売上
+          </h4>
+          <div class="grid md:grid-cols-3 gap-6 text-left">
+            <div>
+              <div class="text-amber-500 font-black text-lg mb-2">✓ 売上入力時</div>
+              <p class="text-gray-300 text-sm leading-relaxed">
+                売上を入力すると、目標達成に必要な1日あたりの売上が即座に再計算されます
+              </p>
+            </div>
+            <div>
+              <div class="text-amber-500 font-black text-lg mb-2">✓ 日数経過時</div>
+              <p class="text-gray-300 text-sm leading-relaxed">
+                残り営業日数が減るたびに、必要売上も自動的に調整されます
+              </p>
+            </div>
+            <div>
+              <div class="text-amber-500 font-black text-lg mb-2">✓ 目標変更時</div>
+              <p class="text-gray-300 text-sm leading-relaxed">
+                月間目標を変更すると、すべての指標がリアルタイムで更新されます
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- その他の機能 -->
+      <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <!-- ランキング機能 -->
+        <div class="bg-[#1A222C] rounded-2xl p-6 border border-gray-800 hover:border-amber-500/50 transition-all">
+          <div class="w-12 h-12 bg-amber-500/20 rounded-xl flex items-center justify-center mb-4">
+            <svg class="w-6 h-6 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"></path>
+            </svg>
+          </div>
+          <h3 class="text-xl font-black text-white mb-2">ランキング機能</h3>
+          <p class="text-gray-400 text-sm leading-relaxed">
+            歴代最高記録、月間・日別ランキングで他の運転手と競い合えます。
+          </p>
+        </div>
+
+        <!-- カレンダー表示 -->
+        <div class="bg-[#1A222C] rounded-2xl p-6 border border-gray-800 hover:border-amber-500/50 transition-all">
+          <div class="w-12 h-12 bg-amber-500/20 rounded-xl flex items-center justify-center mb-4">
+            <svg class="w-6 h-6 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+            </svg>
+          </div>
+          <h3 class="text-xl font-black text-white mb-2">カレンダー表示</h3>
+          <p class="text-gray-400 text-sm leading-relaxed">
+            営業日の売上をカレンダーで一目で確認。営業スケジュールも管理できます。
+          </p>
+        </div>
+
+        <!-- 目標管理 -->
+        <div class="bg-[#1A222C] rounded-2xl p-6 border border-gray-800 hover:border-amber-500/50 transition-all">
+          <div class="w-12 h-12 bg-amber-500/20 rounded-xl flex items-center justify-center mb-4">
+            <svg class="w-6 h-6 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+            </svg>
+          </div>
+          <h3 class="text-xl font-black text-white mb-2">目標管理</h3>
+          <p class="text-gray-400 text-sm leading-relaxed">
+            月間目標を設定して進捗を可視化。達成率をリアルタイムで確認できます。
+          </p>
+        </div>
+
+        <!-- 統計・分析 -->
+        <div class="bg-[#1A222C] rounded-2xl p-6 border border-gray-800 hover:border-amber-500/50 transition-all">
+          <div class="w-12 h-12 bg-amber-500/20 rounded-xl flex items-center justify-center mb-4">
+            <svg class="w-6 h-6 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+            </svg>
+          </div>
+          <h3 class="text-xl font-black text-white mb-2">統計・分析</h3>
+          <p class="text-gray-400 text-sm leading-relaxed">
+            月間統計、決済比率、乗客データなど、詳細な分析機能を提供します。
+          </p>
+        </div>
+
+        <!-- 営業履歴 -->
+        <div class="bg-[#1A222C] rounded-2xl p-6 border border-gray-800 hover:border-amber-500/50 transition-all">
+          <div class="w-12 h-12 bg-amber-500/20 rounded-xl flex items-center justify-center mb-4">
+            <svg class="w-6 h-6 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+            </svg>
+          </div>
+          <h3 class="text-xl font-black text-white mb-2">営業履歴</h3>
+          <p class="text-gray-400 text-sm leading-relaxed">
+            過去の営業データを確認・編集。営業期間ごとに整理された履歴を閲覧できます。
+          </p>
+        </div>
+
+        <!-- データエクスポート -->
+        <div class="bg-[#1A222C] rounded-2xl p-6 border border-gray-800 hover:border-amber-500/50 transition-all">
+          <div class="w-12 h-12 bg-amber-500/20 rounded-xl flex items-center justify-center mb-4">
+            <svg class="w-6 h-6 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+            </svg>
+          </div>
+          <h3 class="text-xl font-black text-white mb-2">データエクスポート</h3>
+          <p class="text-gray-400 text-sm leading-relaxed">
+            CSV形式でデータをエクスポート。Excelなどでの分析も可能です。
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 特徴セクション -->
+  <section class="py-20 px-4 bg-[#0A0E14]">
+    <div class="max-w-7xl mx-auto">
+      <h2 class="text-4xl md:text-5xl font-black text-center mb-16 gradient-text">
+        TAXI Navigatorの特徴
+      </h2>
+      
+      <div class="grid md:grid-cols-3 gap-8">
+        <!-- スマートフォン対応 -->
+        <div class="text-center">
+          <div class="w-20 h-20 bg-amber-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
+            <svg class="w-10 h-10 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"></path>
+            </svg>
+          </div>
+          <h3 class="text-2xl font-black text-white mb-4">スマートフォン対応</h3>
+          <p class="text-gray-400 leading-relaxed">
+            スマホでもPCでも快適に使えます。外出先でも営業データをすぐに記録できます。
+          </p>
+        </div>
+
+        <!-- 簡単操作 -->
+        <div class="text-center">
+          <div class="w-20 h-20 bg-amber-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
+            <svg class="w-10 h-10 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+            </svg>
+          </div>
+          <h3 class="text-2xl font-black text-white mb-4">簡単操作</h3>
+          <p class="text-gray-400 leading-relaxed">
+            直感的なUI設計。複雑な操作は一切不要。すぐに使い始められます。
+          </p>
+        </div>
+
+        <!-- データ安全 -->
+        <div class="text-center">
+          <div class="w-20 h-20 bg-amber-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
+            <svg class="w-10 h-10 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path>
+            </svg>
+          </div>
+          <h3 class="text-2xl font-black text-white mb-4">データ安全</h3>
+          <p class="text-gray-400 leading-relaxed">
+            Firebaseの安全なクラウドに保存。データは自動バックアップされます。
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTAセクション -->
+  <section class="py-20 px-4 bg-gradient-to-b from-[#131C2B] to-[#0A0E14]">
+    <div class="max-w-4xl mx-auto text-center">
+      <h2 class="text-4xl md:text-5xl font-black mb-6 gradient-text">
+        今すぐ始めませんか？
+      </h2>
+      <p class="text-xl text-gray-300 mb-12">
+        Googleアカウントで簡単ログイン。<br>登録は無料で、すぐに使い始められます。
+      </p>
+      <a href="https://pro-taxi-d3945.web.app" class="inline-block px-12 py-5 bg-amber-500 hover:bg-amber-600 text-gray-900 font-black text-2xl rounded-full transition-all shadow-2xl hover:shadow-amber-500/50 transform hover:scale-105">
+        無料で始める →
+      </a>
+    </div>
+  </section>
+
+  <!-- フッター -->
+  <footer class="py-12 px-4 border-t border-gray-800">
+    <div class="max-w-7xl mx-auto text-center">
+      <div class="flex items-center justify-center gap-2 mb-4">
+        <div class="text-xl font-black italic gradient-text">TAXI</div>
+        <div class="text-sm font-bold italic text-amber-500/80 uppercase tracking-widest">navigator</div>
+      </div>
+      <p class="text-gray-500 text-sm">
+        © 2025 TAXI Navigator. All rights reserved.
+      </p>
+    </div>
+  </footer>
+
+  <!-- スムーススクロール -->
+  <script>
+    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+      anchor.addEventListener('click', function (e) {
+        e.preventDefault();
+        const target = document.querySelector(this.getAttribute('href'));
+        if (target) {
+          target.scrollIntoView({
+            behavior: 'smooth',
+            block: 'start'
+          });
+        }
+      });
+    });
+  </script>
+</body>
+</html>

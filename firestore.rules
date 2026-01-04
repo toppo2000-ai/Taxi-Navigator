@@ -1,0 +1,39 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ★テスト用: 極限まで緩和したルール
+    // 認証済みユーザーは全ての操作が可能
+    
+    // usersコレクション: 認証済みユーザーは全ての操作が可能
+    match /users/{userId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
+      
+      // サブコレクション（history）へのアクセス権限
+      match /history/{recordId} {
+        allow read: if request.auth != null;
+        allow create: if request.auth != null;
+        allow update: if request.auth != null;
+        allow delete: if request.auth != null;
+      }
+    }
+    
+    // public_statusコレクション: 認証済みユーザーは全ての操作が可能
+    match /public_status/{userId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
+      
+      // サブコレクション（history）へのアクセス権限
+      match /history/{recordId} {
+        allow read: if request.auth != null;
+        allow create: if request.auth != null;
+        allow update: if request.auth != null;
+        allow delete: if request.auth != null;
+      }
+    }
+  }
+}

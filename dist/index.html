@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    
+    <!-- プライバシー保護警告を抑制するためのメタタグ -->
+    <meta http-equiv="Permissions-Policy" content="interest-cohort=()" />
+    <meta name="referrer" content="no-referrer-when-downgrade" />
+    
+    <title>Taxi Navigator</title>
+
+    <!-- iOS用メタタグ -->
+    <meta name="apple-mobile-web-app-title" content="Taxi Navigator" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    
+    <!-- Android用メタタグ -->
+    <meta name="application-name" content="Taxi Navigator" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    
+    <!-- テーマカラー（全プラットフォーム共通） -->
+    <meta name="theme-color" content="#0A0E14" />
+
+    <link rel="manifest" href="/manifest.json" />
+    
+    <link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon-CPmQ6Ws2.png" />
+    <link rel="icon" type="image/png" href="/assets/favicon-96x96-CUYaWTo6.png" sizes="96x96" />
+    <link rel="icon" type="image/svg+xml" href="/assets/favicon-DRy5fQDB.svg" />
+    <link rel="shortcut icon" href="/assets/favicon-CAw3rTex.ico" />
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              dark: '#0A0E14',
+              card: '#1A222C',
+            }
+          }
+        }
+      }
+    </script>
+    
+    <!-- Firebase Hostingの認証ハンドラーページから元の環境にリダイレクト -->
+    <script>
+      // Firebase Hostingの認証ハンドラーページかどうかをチェック
+      if (window.location.hostname.includes('firebaseapp.com') && window.location.pathname.includes('/__/auth/handler')) {
+        console.log('[index.html] Firebase Hosting auth handler detected');
+        console.log('[index.html] Current URL:', window.location.href);
+        
+        // URLパラメータを取得（認証コードを含む）
+        const params = new URLSearchParams(window.location.search);
+        const hashParams = new URLSearchParams(window.location.hash.substring(1));
+        
+        console.log('[index.html] URL params (search):', Object.fromEntries(params.entries()));
+        console.log('[index.html] URL params (hash):', Object.fromEntries(hashParams.entries()));
+        console.log('[index.html] Current search:', window.location.search);
+        console.log('[index.html] Current hash:', window.location.hash);
+        
+        // 保存されたオリジン情報を取得（本番環境または開発環境のURL）
+        let savedOrigin = null;
+        let savedHostname = null;
+        let savedPort = '';
+        
+        try {
+          savedOrigin = localStorage.getItem('auth_redirect_origin');
+          savedHostname = localStorage.getItem('auth_redirect_hostname');
+          savedPort = localStorage.getItem('auth_redirect_port') || '';
+        } catch (e) {
+          console.warn('[index.html] localStorage access failed:', e);
+        }
+        
+        if (!savedOrigin) {
+          try {
+            savedOrigin = sessionStorage.getItem('auth_redirect_origin');
+            savedHostname = sessionStorage.getItem('auth_redirect_hostname');
+            savedPort = sessionStorage.getItem('auth_redirect_port') || '';
+          } catch (e) {
+            console.warn('[index.html] sessionStorage access failed:', e);
+          }
+        }
+        
+        console.log('[index.html] Saved redirect info:', { savedOrigin, savedHostname, savedPort });
+        
+        let redirectUrl;
+        if (savedOrigin) {
+          redirectUrl = savedOrigin;
+          console.log('[index.html] Using saved origin:', redirectUrl);
+        } else if (savedHostname) {
+          const protocol = savedHostname === 'localhost' ? 'http' : window.location.protocol;
+          redirectUrl = protocol + '//' + savedHostname + (savedPort ? ':' + savedPort : '');
+          console.log('[index.html] Using saved hostname:', redirectUrl);
+        } else {
+          // フォールバック: context_uriパラメータから取得を試みる
+          const contextUri = params.get('context_uri') || params.get('continue');
+          if (contextUri) {
+            try {
+              const decodedUri = decodeURIComponent(contextUri);
+              const contextUrl = new URL(decodedUri.includes('://') ? decodedUri : 'https://' + decodedUri);
+              if (contextUrl.hostname.includes('web.app') || contextUrl.hostname.includes('firebaseapp.com')) {
+                redirectUrl = contextUrl.origin;
+                console.log('[index.html] Using context_uri:', redirectUrl);
+              } else {
+                redirectUrl = window.location.protocol + '//pro-taxi-d3945.web.app';
+                console.warn('[index.html] context_uri not usable, using fallback:', redirectUrl);
+              }
+            } catch (e) {
+              redirectUrl = window.location.protocol + '//pro-taxi-d3945.web.app';
+              console.warn('[index.html] Failed to parse context_uri, using fallback:', redirectUrl);
+            }
+          } else {
+            redirectUrl = window.location.protocol + '//pro-taxi-d3945.web.app';
+            console.warn('[index.html] No saved origin found, using fallback:', redirectUrl);
+          }
+        }
+        
+        // ★重要: Firebase認証ハンドラーは自動的に認証コードを処理する
+        // パラメータがない場合でも、認証状態は更新されている可能性がある
+        // そのため、パラメータを保持せずにリダイレクトする
+        // （Firebase認証の状態は、認証ハンドラーで処理された後、onAuthStateChangedで取得される）
+        const finalUrl = redirectUrl;
+        console.log('[index.html] Redirecting to:', finalUrl);
+        console.log('[index.html] Note: Auth state should be updated by Firebase auth handler');
+        
+        // リダイレクト実行（パラメータは保持しない - Firebase認証ハンドラーで処理済み）
+        window.location.href = finalUrl;
+      }
+    </script>
+    <script type="module" crossorigin src="/assets/index-Dl3JzRcA.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-2XKPvYx_.css">
+  </head>
+  <body>
+    <div id="root">
+      <div class="flex items-center justify-center min-h-screen text-gray-500">
+        読み込み中...
+      </div>
+    </div>
+  </body>
+</html>
