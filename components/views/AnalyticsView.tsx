@@ -6,14 +6,17 @@ import {
   Skull,
   Users,
   CreditCard,
+  Car,
   ChevronLeft,
   ChevronRight
 } from 'lucide-react';
-import { SalesRecord, MonthlyStats, PaymentMethod } from '../../types';
+import { SalesRecord, MonthlyStats, PaymentMethod, RideType } from '../../types';
 import { 
   getBillingPeriod, 
   formatCurrency, 
   PAYMENT_LABELS, 
+  RIDE_LABELS,
+  getRideBreakdown,
   getBusinessDate,
   formatDate
 } from '../../utils';
@@ -34,6 +37,19 @@ const getPaymentBarColorClass = (method: PaymentMethod) => {
     case 'DIDI': return 'bg-orange-400';
     case 'QR': return 'bg-teal-400';
     case 'TICKET': return 'bg-rose-400';
+    default: return 'bg-gray-400';
+  }
+};
+
+// 乗車区分のバー用の明るい色クラス
+const getRideBarColorClass = (rideType: RideType) => {
+  switch (rideType) {
+    case 'FLOW': return 'bg-green-400';
+    case 'WAIT': return 'bg-yellow-400';
+    case 'APP': return 'bg-blue-400';
+    case 'HIRE': return 'bg-purple-400';
+    case 'RESERVE': return 'bg-pink-400';
+    case 'WIRELESS': return 'bg-indigo-400';
     default: return 'bg-gray-400';
   }
 };
@@ -99,6 +115,16 @@ const AnalyticsView: React.FC<AnalyticsViewProps> = ({ history, stats }) => {
         percent: payTotal > 0 ? (amount / payTotal) * 100 : 0 
       }));
 
+    // 乗車区分別の売上
+    const rideBreakdown = getRideBreakdown(filteredRecords);
+    const rideTotal = Object.values(rideBreakdown).reduce((sum, val) => sum + val, 0);
+    const rideData = Object.entries(rideBreakdown)
+      .sort(([, a], [, b]) => b - a)
+      .map(([rideType, amount]) => ({
+        rideType: rideType as RideType,
+        amount,
+        percent: rideTotal > 0 ? (amount / rideTotal) * 100 : 0
+      }));
 
     return {
       totalSales,
@@ -114,6 +140,7 @@ const AnalyticsView: React.FC<AnalyticsViewProps> = ({ history, stats }) => {
         femalePer: totalPax > 0 ? (female/totalPax)*100 : 0 
       },
       paymentData,
+      rideData,
       records: filteredRecords
     };
   }, [history, targetDate, shimebiDay, businessStartHour]);
@@ -222,6 +249,29 @@ const AnalyticsView: React.FC<AnalyticsViewProps> = ({ history, stats }) => {
                     <div 
                       className={`h-full ${getPaymentBarColorClass(p.method)}`} 
                       style={{ width: `${p.percent}%` }} 
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Ride Types */}
+          <div className="bg-gray-800 p-5 rounded-[28px] border-2 border-blue-500 shadow-lg space-y-4">
+            <h4 className="text-xs font-black text-gray-500 uppercase tracking-widest flex items-center gap-2">
+              <Car className="w-4 h-4 text-cyan-500" /> 乗車区分別の売上
+            </h4>
+            <div className="space-y-3">
+              {monthlyMetrics.rideData.slice(0, 4).map(r => (
+                <div key={r.rideType} className="space-y-1">
+                  <div className="flex justify-between text-[10px] font-bold">
+                    <span className="text-gray-300">{RIDE_LABELS[r.rideType] || r.rideType}</span>
+                    <span className="text-gray-500">{Math.round(r.percent)}%</span>
+                  </div>
+                  <div className="h-2 w-full bg-gray-900 rounded-full overflow-hidden">
+                    <div 
+                      className={`h-full ${getRideBarColorClass(r.rideType)}`} 
+                      style={{ width: `${r.percent}%` }} 
                     />
                   </div>
                 </div>

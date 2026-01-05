@@ -2333,6 +2333,9 @@ const handleStart = (goal: number, hours: number, startOdo?: number) => {
             shift={shift} 
             stats={currentPeriodStats} 
             breakState={breakState}
+            history={history}
+            dayMetadata={dayMetadata}
+            onUpdateStats={handleUpdateMonthlyStats}
             onStart={handleStart} 
             onEnd={() => setIsDailyReportOpen(true)} 
             onAdd={(rm) => handleOpenRecordModal(rm ? { remarks: rm } : undefined)} 

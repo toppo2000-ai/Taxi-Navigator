@@ -17,6 +17,7 @@ import {
   Users, 
   X, 
   ChevronRight, 
+  ChevronLeft,
   ArrowLeft, 
   LogOut, 
   Car, 
@@ -26,7 +27,7 @@ import {
   Gauge
 } from 'lucide-react';
 import { auth } from '../../services/firebase';
-import { Shift, MonthlyStats, SalesRecord, BreakState } from '../../types';
+import { Shift, MonthlyStats, SalesRecord, BreakState, DayMetadata } from '../../types';
 import { 
   formatCurrency, 
   formatTime, 
@@ -36,7 +37,8 @@ import {
   calculateNetTotal, 
   getBusinessDate, 
   getBillingPeriod, 
-  getPaymentBreakdown, 
+  getPaymentBreakdown,
+  getRideBreakdown
 } from '../../utils';
 import { SalesRecordCard } from '../history/SalesRecordCard';
 import { PaymentBreakdownList, getPaymentCounts } from '../history/PaymentBreakdownList';
@@ -87,6 +89,9 @@ interface DashboardProps {
   onToggleBreak: () => void;
   setBreakState: (state: BreakState) => void;
   onShiftEdit: () => void;
+  history?: SalesRecord[];
+  dayMetadata?: Record<string, DayMetadata>;
+  onUpdateStats?: (newStats: Partial<MonthlyStats>) => void;
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ 
@@ -103,7 +108,10 @@ const Dashboard: React.FC<DashboardProps> = ({
   onToggleBreak,
   setBreakState,
   onShiftEdit,
-  onUpdateStartOdo 
+  onUpdateStartOdo,
+  history = [],
+  dayMetadata = {},
+  onUpdateStats
 }) => {
   const [goalIn, setGoalIn] = useState(stats.defaultDailyGoal.toLocaleString()); 
   const [plannedHours, setPlannedHours] = useState(12);
@@ -118,6 +126,157 @@ const Dashboard: React.FC<DashboardProps> = ({
   
   // 時計表示用ステート
   const [isClockOpen, setIsClockOpen] = useState(false);
+  // カレンダー表示用ステート
+  const [isCalendarOpen, setIsCalendarOpen] = useState(false);
+  // 出勤予定日カレンダー用ステート
+  const [calendarViewDate, setCalendarViewDate] = useState(new Date());
+  const [calendarDutyDays, setCalendarDutyDays] = useState<string[]>(stats.dutyDays || []);
+  
+  const businessStartHour = stats.businessStartHour ?? 9;
+  const shimebiDay = stats.shimebiDay ?? 20;
+  
+  // カレンダーの日付配列を生成（SettingsModalと同じロジック）
+  const calendarDates = useMemo(() => {
+    const sDay = parseInt(shimebiDay.toString());
+    const effectiveShimebi = isNaN(sDay) ? 20 : sDay;
+    const { start: billingStart, end: billingEnd } = getBillingPeriod(calendarViewDate, effectiveShimebi, businessStartHour);
+    
+    // 営業期間の開始日の月を表示
+    const displayYear = billingStart.getFullYear();
+    const displayMonth = billingStart.getMonth();
+    
+    // 営業期間の開始日（21日）を含む週の最初の日（日曜日）から表示
+    const firstDay = new Date(displayYear, displayMonth, billingStart.getDate());
+    const startDate = new Date(firstDay);
+    const dayOfWeek = firstDay.getDay();
+    startDate.setDate(startDate.getDate() - dayOfWeek);
+    
+    // 営業期間の終了日を含む週の最後の日（土曜日）まで表示
+    const lastDay = new Date(displayYear, billingEnd.getMonth(), billingEnd.getDate());
+    const endDate = new Date(lastDay);
+    const endDayOfWeek = lastDay.getDay();
+    endDate.setDate(endDate.getDate() + (6 - endDayOfWeek));
+    
+    // 5週分（35日）を生成
+    const dates: Date[] = [];
+    const current = new Date(startDate);
+    for (let i = 0; i < 35; i++) {
+      dates.push(new Date(current));
+      current.setDate(current.getDate() + 1);
+    }
+    return dates;
+  }, [calendarViewDate, shimebiDay, businessStartHour]);
+
+  // 表示する月のラベル
+  const displayScheduleMonth = useMemo(() => {
+    const sDay = parseInt(shimebiDay.toString());
+    const effectiveShimebi = isNaN(sDay) ? 20 : sDay;
+    const { end } = getBillingPeriod(calendarViewDate, effectiveShimebi, businessStartHour);
+    return `${end.getFullYear()} / ${String(end.getMonth() + 1).padStart(2, '0')}`;
+  }, [calendarViewDate, shimebiDay, businessStartHour]);
+
+  // 売上データがある日を判定
+  const hasSalesData = useMemo(() => {
+    const salesDateMap: Record<string, boolean> = {};
+    const dateMap: Record<string, SalesRecord[]> = {};
+    
+    history.forEach(record => {
+      const businessDateStr = getBusinessDate(record.timestamp, businessStartHour);
+      if (!dateMap[businessDateStr]) {
+        dateMap[businessDateStr] = [];
+      }
+      dateMap[businessDateStr].push(record);
+    });
+    
+    Object.keys(dateMap).forEach(dateStr => {
+      const dayRecords = dateMap[dateStr];
+      const hasSimpleMode = dayRecords.some(r => r.remarks?.includes('簡易モード'));
+      
+      if (hasSimpleMode) {
+        const simpleRecords = dayRecords.filter(r => r.remarks?.includes('簡易モード'));
+        if (simpleRecords.length > 0) {
+          salesDateMap[dateStr] = true;
+        }
+      } else {
+        const detailedRecords = dayRecords.filter(r => !r.remarks?.includes('簡易モード'));
+        if (detailedRecords.length > 0) {
+          salesDateMap[dateStr] = true;
+        }
+      }
+    });
+    
+    return salesDateMap;
+  }, [history, businessStartHour]);
+
+  // 選択した日数をカウント
+  const dutyCountInView = useMemo(() => {
+    const sDay = parseInt(shimebiDay.toString());
+    const effectiveShimebi = isNaN(sDay) ? 20 : sDay;
+    const { start: billingStart, end: billingEnd } = getBillingPeriod(calendarViewDate, effectiveShimebi, businessStartHour);
+    const billingStartStr = formatDate(billingStart);
+    const billingEndStr = formatDate(billingEnd);
+    const todayBusinessDate = getBusinessDate(Date.now(), businessStartHour);
+    
+    const selectedDaysSet = new Set<string>();
+    
+    calendarDates.forEach(d => {
+      const dateWithHour = new Date(d);
+      dateWithHour.setHours(businessStartHour, 0, 0, 0);
+      const businessDateStr = getBusinessDate(dateWithHour.getTime(), businessStartHour);
+      const isInBillingPeriod = businessDateStr >= billingStartStr && businessDateStr <= billingEndStr;
+      
+      if (isInBillingPeriod) {
+        const isPast = businessDateStr < todayBusinessDate;
+        const hasSales = hasSalesData[businessDateStr] || false;
+        const isDuty = calendarDutyDays.includes(businessDateStr);
+        
+        if (isDuty || (isPast && hasSales)) {
+          selectedDaysSet.add(businessDateStr);
+        }
+      }
+    });
+    
+    return selectedDaysSet.size;
+  }, [calendarDates, calendarDutyDays, calendarViewDate, shimebiDay, businessStartHour, hasSalesData]);
+
+  // stats.dutyDaysが変更されたときにcalendarDutyDaysを更新
+  useEffect(() => {
+    setCalendarDutyDays(stats.dutyDays || []);
+  }, [stats.dutyDays]);
+
+  // 日付の選択/解除
+  const toggleDutyDay = (dateStr: string) => {
+    const todayBusinessDate = getBusinessDate(Date.now(), businessStartHour);
+    const isPast = dateStr < todayBusinessDate;
+    if (isPast) {
+      return;
+    }
+    
+    setCalendarDutyDays(prev => 
+      prev.includes(dateStr) ? prev.filter(d => d !== dateStr) : [...prev, dateStr]
+    );
+  };
+
+  // 平日のみ自動選択
+  const handleAutoSetDutyDays = () => {
+    const sDay = parseInt(shimebiDay.toString());
+    const effectiveShimebi = isNaN(sDay) ? 20 : sDay;
+    const { start, end } = getBillingPeriod(calendarViewDate, effectiveShimebi, businessStartHour);
+    
+    const newDutyDays: string[] = [];
+    let curr = new Date(start);
+    while (curr <= end) {
+      const dayOfWeek = curr.getDay();
+      if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+        const dateWithHour = new Date(curr);
+        dateWithHour.setHours(businessStartHour, 0, 0, 0);
+        const businessDateStr = getBusinessDate(dateWithHour.getTime(), businessStartHour);
+        newDutyDays.push(businessDateStr);
+      }
+      curr.setDate(curr.getDate() + 1);
+    }
+    setCalendarDutyDays(newDutyDays);
+  };
 
   // ODOメーター用ステート
   const [startOdoIn, setStartOdoIn] = useState('');
@@ -425,11 +584,14 @@ const Dashboard: React.FC<DashboardProps> = ({
               <Calendar className="w-6 h-6 text-amber-500" />
               <span className="text-lg font-black tracking-widest uppercase text-gray-400 whitespace-nowrap">売上状況</span>
             </div>
-            <div className="bg-indigo-500/10 border border-indigo-500/30 px-3 py-1.5 rounded-full min-w-0 flex-shrink">
+            <button
+              onClick={() => setIsCalendarOpen(true)}
+              className="bg-indigo-500/10 border border-indigo-500/30 px-3 py-1.5 rounded-full min-w-0 flex-shrink cursor-pointer active:scale-95 transition-transform hover:bg-indigo-500/20"
+            >
               <span className="text-xs font-black text-indigo-400 uppercase tracking-tighter whitespace-nowrap block truncate">
                 {formatDate(billingPeriod.start)} 〜 {formatDate(billingPeriod.end)}
               </span>
-            </div>
+            </button>
           </div>
           
           <div className="flex justify-between items-end gap-2 w-full">
@@ -439,12 +601,15 @@ const Dashboard: React.FC<DashboardProps> = ({
                 {Math.round(stats.totalSales).toLocaleString()}
               </span>
             </div>
-            <div className="text-right flex-shrink-0">
+            <button 
+              onClick={() => setIsCalendarOpen(true)}
+              className="text-right flex-shrink-0 cursor-pointer active:scale-95 transition-transform"
+            >
               <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-1 whitespace-nowrap">残り出勤</p>
               <p className="text-[clamp(1.8rem,8vw,2.5rem)] font-black text-amber-500 leading-none whitespace-nowrap">
                 {remainingDutyDays} <span className="text-lg font-bold">日</span>
               </p>
-            </div>
+            </button>
           </div>
 
           <div 
@@ -914,6 +1079,126 @@ const Dashboard: React.FC<DashboardProps> = ({
             )}
           </div>
         </div>
+      )}
+
+      {/* 出勤予定日カレンダーポップアップ */}
+      {isCalendarOpen && (
+        <ModalWrapper onClose={() => {
+          // 閉じる時に変更を保存
+          if (onUpdateStats) {
+            onUpdateStats({ dutyDays: calendarDutyDays });
+          }
+          setIsCalendarOpen(false);
+        }}>
+          <div className="bg-gray-800 p-5 rounded-3xl border-2 border-blue-500 shadow-inner w-full max-w-md">
+            <div className="flex flex-col mb-4">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-xl font-black text-white flex items-center gap-2">
+                  <CalendarDays className="w-6 h-6 text-yellow-500" /> 出勤予定日を選択してください
+                </h3>
+                <button
+                  onClick={() => {
+                    if (onUpdateStats) {
+                      onUpdateStats({ dutyDays: calendarDutyDays });
+                    }
+                    setIsCalendarOpen(false);
+                  }}
+                  className="text-gray-400 hover:text-white transition-colors"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+              {/* 選択した日数を簡易モードと同じ形式で表示 */}
+              <div className="mt-4 bg-gray-800 rounded-xl p-4 border-2 border-orange-500/50">
+                <div className="text-sm text-gray-400 mb-1">選択した日数</div>
+                <div className="text-2xl font-black text-white">{dutyCountInView} 日</div>
+              </div>
+              <div className="mt-4 flex items-center justify-between bg-gray-950 rounded-2xl p-2 border-2 border-gray-700">
+                <button 
+                  onClick={() => {
+                    const sDay = parseInt(shimebiDay.toString());
+                    const effectiveShimebi = isNaN(sDay) ? 20 : sDay;
+                    const { start: currentStart } = getBillingPeriod(calendarViewDate, effectiveShimebi, businessStartHour);
+                    const prevMonth = new Date(currentStart);
+                    prevMonth.setMonth(prevMonth.getMonth() - 1);
+                    const { start: prevStart } = getBillingPeriod(prevMonth, effectiveShimebi, businessStartHour);
+                    setCalendarViewDate(prevStart);
+                  }} 
+                  className="p-3 text-gray-400 active:scale-90"
+                >
+                  <ChevronLeft className="w-6 h-6" />
+                </button>
+                <span className="text-xl font-black text-white">{displayScheduleMonth}</span>
+                <button 
+                  onClick={() => {
+                    const sDay = parseInt(shimebiDay.toString());
+                    const effectiveShimebi = isNaN(sDay) ? 20 : sDay;
+                    const { start: currentStart } = getBillingPeriod(calendarViewDate, effectiveShimebi, businessStartHour);
+                    const nextMonth = new Date(currentStart);
+                    nextMonth.setMonth(nextMonth.getMonth() + 1);
+                    const { start: nextStart } = getBillingPeriod(nextMonth, effectiveShimebi, businessStartHour);
+                    setCalendarViewDate(nextStart);
+                  }} 
+                  className="p-3 text-gray-400 active:scale-90"
+                >
+                  <ChevronRight className="w-6 h-6" />
+                </button>
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-7 gap-2 mb-2">
+              {['日', '月', '火', '水', '木', '金', '土'].map((day) => (
+                <div key={day} className="text-center text-sm font-bold text-gray-400">
+                  {day}
+                </div>
+              ))}
+            </div>
+            <div className="grid grid-cols-7 gap-2">
+              {calendarDates.map(date => {
+                const dateWithBusinessHour = new Date(date);
+                dateWithBusinessHour.setHours(businessStartHour, 0, 0, 0);
+                const businessDateStr = getBusinessDate(dateWithBusinessHour.getTime(), businessStartHour);
+                
+                const dateStr = formatDate(date);
+                const isDuty = calendarDutyDays.includes(businessDateStr);
+                const todayBusinessDate = getBusinessDate(Date.now(), businessStartHour);
+                const isToday = businessDateStr === todayBusinessDate;
+                const isPast = businessDateStr < todayBusinessDate;
+                const hasSales = hasSalesData[businessDateStr] || false;
+                
+                const isLocked = isPast && hasSales;
+                const isSelectable = !isPast || !hasSales;
+                
+                return (
+                  <button
+                    key={dateStr}
+                    onClick={() => toggleDutyDay(businessDateStr)}
+                    disabled={isLocked}
+                    className={`aspect-square rounded-xl flex items-center justify-center transition-all ${
+                      isPast && hasSales
+                        ? 'bg-yellow-500 text-gray-900 font-black cursor-not-allowed'
+                        : isPast && !hasSales
+                        ? 'bg-gray-800/50 text-gray-500'
+                        : isDuty
+                        ? 'bg-orange-500 text-gray-900 font-black'
+                        : 'bg-gray-800 text-white font-bold hover:bg-gray-700'
+                    } ${isToday ? 'ring-2 ring-orange-500' : ''} ${isSelectable ? 'active:scale-95' : ''}`}
+                  >
+                    <span className="text-base">{date.getDate()}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <button 
+              onClick={handleAutoSetDutyDays}
+              className="w-full mt-4 py-3 bg-gray-800 border border-gray-700 rounded-xl text-sm font-bold text-gray-400 hover:bg-gray-700 active:scale-95 transition-all flex items-center justify-center gap-2"
+            >
+              <CalendarDays className="w-4 h-4" />
+              平日のみ自動選択 (約20日)
+            </button>
+          </div>
+        </ModalWrapper>
       )}
     </div>
   );
