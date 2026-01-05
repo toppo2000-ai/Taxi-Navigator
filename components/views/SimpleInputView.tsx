@@ -206,7 +206,7 @@ export const SimpleInputView: React.FC<SimpleInputViewProps> = ({ stats, onUpdat
 
         if (dayRecord) {
           // 簡易モードのデータはremarksに情報が入っている想定
-          setSales(dayRecord.amount.toLocaleString());
+          setSales(dayRecord.amount.toString());
           
           // remarksから乗車回数を抽出
           let rideCount = '';
@@ -715,17 +715,18 @@ export const SimpleInputView: React.FC<SimpleInputViewProps> = ({ stats, onUpdat
                   }
                 }}
                 onChange={(e) => {
-                  const originalValue = e.target.value.replace(/,/g, '');
+                  // 営業回数と同じ方式：数値のみを許可
+                  const originalValue = e.target.value;
                   const numericValue = originalValue.replace(/[^0-9]/g, '');
-                  setSales(numericValue ? parseInt(numericValue, 10).toLocaleString() : '');
+                  setSales(numericValue);
                 }}
                 onFocus={(e) => {
                   const target = e.target;
-                  const numericValue = target.value.replace(/,/g, '');
-                  if (numericValue) {
+                  const value = target.value;
+                  if (value) {
                     setTimeout(() => {
-                      // カンマを考慮してカーソル位置を設定
-                      const len = numericValue.length;
+                      // 値の末尾にカーソルを配置
+                      const len = value.length;
                       target.setSelectionRange(len, len);
                     }, 0);
                   }
