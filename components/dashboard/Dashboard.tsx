@@ -38,7 +38,8 @@ import {
   getBusinessDate, 
   getBillingPeriod, 
   getPaymentBreakdown,
-  getRideBreakdown
+  getRideBreakdown,
+  filterRecordsWithSimpleModePriority
 } from '../../utils';
 import { SalesRecordCard } from '../history/SalesRecordCard';
 import { PaymentBreakdownList, getPaymentCounts } from '../history/PaymentBreakdownList';
@@ -422,10 +423,39 @@ const Dashboard: React.FC<DashboardProps> = ({
   }, [stats.monthlyGoal, stats.totalSales, remainingDutyDays]);
 
   // 今日までの出勤日数を計算（今日も含む）
+  // 実際の売上データがある日数をカウント（簡易モード優先でフィルタリング）
   const completedDutyDays = useMemo(() => {
-    if (!stats.dutyDays) return 0;
-    return stats.dutyDays.filter(dStr => dStr <= todayBusinessDate && dStr >= formatDate(billingPeriod.start)).length;
-  }, [stats.dutyDays, todayBusinessDate, billingPeriod.start]);
+    const startStr = formatDate(billingPeriod.start);
+    const endStr = formatDate(billingPeriod.end);
+    
+    // 営業期間内のレコードを取得
+    const periodRecords = (history || []).filter(r => {
+      const bDate = getBusinessDate(r.timestamp, businessStartHour);
+      return bDate >= startStr && bDate <= endStr && bDate <= todayBusinessDate;
+    });
+    
+    // 簡易モード優先でフィルタリング
+    const filteredRecords = filterRecordsWithSimpleModePriority(periodRecords, businessStartHour);
+    
+    // 営業日ごとにグループ化して、ユニークな営業日数をカウント
+    const uniqueDaysSet = new Set<string>();
+    filteredRecords.forEach(r => {
+      const businessDateStr = getBusinessDate(r.timestamp, businessStartHour);
+      uniqueDaysSet.add(businessDateStr);
+    });
+    
+    const result = uniqueDaysSet.size;
+    console.log('[Dashboard] completedDutyDays calculation:', {
+      historyCount: history?.length || 0,
+      periodRecordsCount: periodRecords.length,
+      filteredRecordsCount: filteredRecords.length,
+      uniqueDaysCount: result,
+      todayBusinessDate,
+      billingPeriodStart: startStr,
+      billingPeriodEnd: endStr
+    });
+    return result;
+  }, [history, todayBusinessDate, billingPeriod.start, billingPeriod.end, businessStartHour]);
 
   // 出勤予定日数（期間全体）
   const plannedDutyDays = useMemo(() => {
@@ -433,18 +463,27 @@ const Dashboard: React.FC<DashboardProps> = ({
     return stats.dutyDays.filter(dStr => dStr >= formatDate(billingPeriod.start) && dStr <= formatDate(billingPeriod.end)).length;
   }, [stats.dutyDays, billingPeriod]);
 
-  // 予想月間売上: 現時点までの総売上を出勤日数で割って、出勤予定日数をかけた値
+  // 現時点での平均売上: 現時点の売上 ÷ 出勤日数
+  const averageDailySales = useMemo(() => {
+    if (completedDutyDays <= 0) {
+      console.log('[Dashboard] averageDailySales: completedDutyDays is 0 or less, returning 0');
+      return 0;
+    }
+    const result = stats.totalSales / completedDutyDays;
+    console.log('[Dashboard] averageDailySales calculation:', {
+      totalSales: stats.totalSales,
+      completedDutyDays: completedDutyDays,
+      calculation: `${stats.totalSales} / ${completedDutyDays}`,
+      result: result
+    });
+    return result;
+  }, [stats.totalSales, completedDutyDays]);
+
+  // 予想月間売上: 現時点での平均売上 × (出勤日数 + 予定出勤日数)
   const estimatedMonthlySales = useMemo(() => {
     if (completedDutyDays <= 0) return 0;
-    const averageDailySales = stats.totalSales / completedDutyDays;
-    return averageDailySales * plannedDutyDays;
-  }, [stats.totalSales, completedDutyDays, plannedDutyDays]);
-
-  // 現時点での１日辺りの平均売上（日売り）
-  const averageDailySales = useMemo(() => {
-    if (completedDutyDays <= 0) return 0;
-    return stats.totalSales / completedDutyDays;
-  }, [stats.totalSales, completedDutyDays]);
+    return averageDailySales * (completedDutyDays + remainingDutyDays);
+  }, [averageDailySales, completedDutyDays, remainingDutyDays]);
 
   const estimatedEndTime = useMemo(() => {
     if (!shift) return null;
@@ -617,7 +656,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             onClick={() => setIsRequiredSalesModalOpen(true)}
           >
             <div className="min-w-0">
-              <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-1 whitespace-nowrap">必要売上 (1日当り)</p>
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-1 whitespace-nowrap">必要売上 (1日あたり)</p>
               <p className="text-[clamp(1.6rem,8vw,2.2rem)] font-black text-white leading-none truncate">
                 {formatCurrency(requiredPerDay)}
               </p>
@@ -717,7 +756,7 @@ const Dashboard: React.FC<DashboardProps> = ({
               <div className="bg-gradient-to-br from-red-500/20 to-pink-500/20 rounded-2xl p-5 border-2 border-red-500/50 shadow-lg">
                 <div className="flex items-center gap-3 mb-3">
                   <Target className="w-6 h-6 text-red-400 flex-shrink-0" />
-                  <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">目標達成に必要な１日当りの売上</p>
+                  <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">目標達成に必要な１日あたりの売上</p>
                 </div>
                 <div className="flex items-baseline text-white font-black leading-none">
                   <span className="text-2xl mr-1 text-red-400">¥</span>
@@ -997,10 +1036,10 @@ const Dashboard: React.FC<DashboardProps> = ({
                 <table className="w-full border-collapse">
                   <thead>
                     <tr className="bg-orange-500 text-white">
-                      <th className="py-2 px-2 border-r border-orange-600 text-center text-base font-black w-[50px]">回数</th>
-                      <th className="py-2 px-2 border-r border-orange-600 text-center text-base font-black w-[85px]">時刻</th>
+                      <th className="py-2 px-1 border-r border-orange-600 text-center text-base font-black w-[40px]">回数</th>
+                      <th className="py-2 px-1 border-r border-orange-600 text-center text-base font-black w-[85px]">時刻</th>
                       <th className="py-2 px-2 border-r border-orange-600 text-center text-base font-black flex-1">乗車地/降車地</th>
-                      <th className="py-2 px-2 text-center text-base font-black w-[70px]">売上</th>
+                      <th className="py-2 px-1 text-center text-base font-black w-[75px]">売上</th>
                     </tr>
                   </thead>
                   <tbody>

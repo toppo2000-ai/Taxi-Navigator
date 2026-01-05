@@ -705,10 +705,10 @@ const handleDownloadExcel = async () => {
             <table className="w-full border-collapse">
               <thead>
                 <tr className="bg-orange-500 text-white">
-                  <th className="py-2 px-2 border-r border-orange-600 text-center text-base font-black w-[60px]">回数</th>
-                  <th className="py-2 px-2 border-r border-orange-600 text-center text-base font-black w-[95px]">時刻</th>
+                  <th className="py-2 px-1 border-r border-orange-600 text-center text-base font-black w-[40px]">回数</th>
+                  <th className="py-2 px-1 border-r border-orange-600 text-center text-base font-black w-[85px]">時刻</th>
                   <th className="py-2 px-2 border-r border-orange-600 text-center text-base font-black flex-1">乗車地/降車地</th>
-                  <th className="py-2 px-2 text-center text-base font-black w-[75px]">売上</th>
+                  <th className="py-2 px-1 text-center text-base font-black w-[75px]">売上</th>
                 </tr>
               </thead>
               <tbody>

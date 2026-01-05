@@ -47,12 +47,12 @@ export const SalesRecordCard: React.FC<SalesRecordCardProps> = ({
         {/* 左端: 番号列（中央揃え、アイコン表示、クリック可能） */}
         <td 
           onClick={onClick}
-          className={`py-2 px-2 border-r ${borderClass} align-middle text-center cursor-pointer transition-colors ${hoverBgClass}`}
+          className={`py-2 px-1 border-r ${borderClass} align-middle text-center cursor-pointer transition-colors ${hoverBgClass}`}
         >
           <div className="flex items-center justify-center w-full">
-            <div className="relative w-full max-w-[135%] aspect-square flex items-center justify-center" style={{ transform: 'scale(1.5)' }}>
-              <Circle className="w-full h-full text-orange-500 fill-orange-500" style={{ transform: 'scale(0.5)', transformOrigin: 'center' }} />
-              <span className="absolute inset-0 flex items-center justify-center text-white font-black text-base" style={{ transform: 'scale(0.7)' }}>
+            <div className="relative flex items-center justify-center" style={{ width: 'clamp(2rem, 6vw, 2.5rem)', height: 'clamp(2rem, 6vw, 2.5rem)' }}>
+              <Circle className="w-full h-full text-orange-500 fill-orange-500" />
+              <span className="absolute inset-0 flex items-center justify-center text-white font-black" style={{ fontSize: 'clamp(0.875rem, 3vw, 1.125rem)' }}>
                 {index}
               </span>
             </div>
@@ -113,8 +113,8 @@ export const SalesRecordCard: React.FC<SalesRecordCardProps> = ({
         </td>
 
         {/* 中央: 売上金額（縦横中央揃え、クリック不可） */}
-        <td className="py-2 px-2 text-center align-middle w-[70px]">
-          <div className="text-white font-black text-lg">
+        <td className="py-2 px-1 text-center align-middle w-[75px]">
+          <div className="text-white font-black text-base whitespace-nowrap">
             {totalAmount.toLocaleString()}
           </div>
         </td>

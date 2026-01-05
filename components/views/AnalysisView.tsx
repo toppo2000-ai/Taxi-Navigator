@@ -246,62 +246,200 @@ const AnalysisView: React.FC<AnalysisViewProps> = ({ history, stats, onNavigateT
     if (rankingTab === 'daily') {
       const loadDailyRanking = async () => {
         try {
-          const dateStr = getBusinessDate(selectedDate.getTime(), businessStartHour);
+          // 選択された日付を営業開始時刻に設定してから営業日を計算
+          // これにより、1/4を選択した場合は1/4の営業分（1/4 9:00～1/5 8:59）を取得
+          const selectedDateWithBusinessHour = new Date(selectedDate);
+          selectedDateWithBusinessHour.setHours(businessStartHour, 0, 0, 0);
+          const dateStr = getBusinessDate(selectedDateWithBusinessHour.getTime(), businessStartHour);
           const ranking: any[] = [];
 
+          // publicStatusDataが空の場合は早期リターン
+          if (publicStatusData.length === 0) {
+            console.log('[AnalysisView] publicStatusData is empty');
+            setDailyRankingData([]);
+            return;
+          }
+
           // 選択日の開始時刻と終了時刻を計算
+          // 選択された日付の営業開始時刻から、次の日の営業開始時刻の1ミリ秒前まで
+          // 例：12/26 9:00 ～ 12/27 8:59:59.999（12/26 32:59:59.999）
           const selectedDateStart = new Date(selectedDate);
           selectedDateStart.setHours(businessStartHour, 0, 0, 0);
           const selectedDateEnd = new Date(selectedDateStart);
           selectedDateEnd.setDate(selectedDateEnd.getDate() + 1);
+          selectedDateEnd.setHours(businessStartHour, 0, 0, 0);
+          selectedDateEnd.setMilliseconds(selectedDateEnd.getMilliseconds() - 1);
           const startTimestamp = selectedDateStart.getTime();
-          const endTimestamp = selectedDateEnd.getTime() - 1;
+          const endTimestamp = selectedDateEnd.getTime();
+
+          console.log(`[AnalysisView] Selected date: ${formatDate(selectedDate)}, Business date: ${dateStr}`);
+          console.log(`[AnalysisView] Timestamp range: ${new Date(startTimestamp).toISOString()} to ${new Date(endTimestamp).toISOString()}`);
+          console.log(`[AnalysisView] Start: ${formatDate(selectedDateStart)} ${selectedDateStart.getHours()}:00, End: ${formatDate(selectedDateEnd)} ${selectedDateEnd.getHours()}:00`);
+
+          const filteredUsers = publicStatusData.filter(shouldShowUserInRanking);
+          console.log(`[AnalysisView] Date: ${dateStr}, Total users: ${publicStatusData.length}, Filtered users: ${filteredUsers.length}`);
 
           // 各ユーザーについてサブコレクションからデータを取得
-          for (const user of publicStatusData.filter(shouldShowUserInRanking)) {
+          for (const user of filteredUsers) {
             try {
-              // サブコレクションから選択日のデータを取得
-              const subcollectionRef = collection(db, "public_status", user.uid, "history");
-              const subcollectionQuery = query(
-                subcollectionRef,
-                where('timestamp', '>=', startTimestamp),
-                where('timestamp', '<=', endTimestamp),
-                orderBy('timestamp', 'asc')
-              );
-              const subcollectionSnap = await getDocs(subcollectionQuery);
-
               let dayTotal = 0;
-              if (!subcollectionSnap.empty) {
-                // サブコレクションから選択日のデータを取得
-                const dayRecords: SalesRecord[] = [];
-                subcollectionSnap.forEach((doc) => {
-                  const record = doc.data() as SalesRecord;
-                  const recordDateStr = getBusinessDate(record.timestamp, businessStartHour);
-                  if (recordDateStr === dateStr) {
-                    dayRecords.push(record);
+              let dayRecords: SalesRecord[] = [];
+              
+              // 各ユーザーの営業開始時刻を取得（デフォルトは自分の営業開始時刻）
+              const userBusinessStartHour = user.businessStartHour ?? businessStartHour;
+              
+              // このユーザーの営業日を計算（ユーザーの営業開始時刻を使用）
+              const userSelectedDateWithBusinessHour = new Date(selectedDate);
+              userSelectedDateWithBusinessHour.setHours(userBusinessStartHour, 0, 0, 0);
+              const userDateStr = getBusinessDate(userSelectedDateWithBusinessHour.getTime(), userBusinessStartHour);
+              
+              // このユーザーのタイムスタンプ範囲を計算
+              const userSelectedDateStart = new Date(selectedDate);
+              userSelectedDateStart.setHours(userBusinessStartHour, 0, 0, 0);
+              const userSelectedDateEnd = new Date(userSelectedDateStart);
+              userSelectedDateEnd.setDate(userSelectedDateEnd.getDate() + 1);
+              userSelectedDateEnd.setHours(userBusinessStartHour, 0, 0, 0);
+              userSelectedDateEnd.setMilliseconds(userSelectedDateEnd.getMilliseconds() - 1);
+              const userStartTimestamp = userSelectedDateStart.getTime();
+              const userEndTimestamp = userSelectedDateEnd.getTime();
+              
+              console.log(`[AnalysisView] User ${user.name} (${user.uid}), businessStartHour: ${userBusinessStartHour}, business date: ${userDateStr}`);
+              console.log(`[AnalysisView] User ${user.name}, timestamp range: ${new Date(userStartTimestamp).toISOString()} to ${new Date(userEndTimestamp).toISOString()}`);
+              
+              // まずサブコレクションからデータを取得を試みる
+              try {
+                const subcollectionRef = collection(db, "public_status", user.uid, "history");
+                
+                // まずorderByなしでクエリを試す（インデックスエラーを回避）
+                let subcollectionSnap;
+                try {
+                  const subcollectionQuery = query(
+                    subcollectionRef,
+                    where('timestamp', '>=', userStartTimestamp),
+                    where('timestamp', '<=', userEndTimestamp),
+                    orderBy('timestamp', 'asc')
+                  );
+                  subcollectionSnap = await getDocs(subcollectionQuery);
+                } catch (indexError: any) {
+                  // インデックスエラーの場合、orderByなしでクエリを試す
+                  console.log(`[AnalysisView] User ${user.name} (${user.uid}), index error, trying without orderBy:`, indexError?.code);
+                  const subcollectionQueryWithoutOrder = query(
+                    subcollectionRef,
+                    where('timestamp', '>=', userStartTimestamp),
+                    where('timestamp', '<=', userEndTimestamp)
+                  );
+                  subcollectionSnap = await getDocs(subcollectionQueryWithoutOrder);
+                }
+
+                if (!subcollectionSnap.empty) {
+                  // サブコレクションから選択日のデータを取得
+                  const allRecordsInRange: SalesRecord[] = [];
+                  subcollectionSnap.forEach((doc) => {
+                    const record = doc.data() as SalesRecord;
+                    allRecordsInRange.push(record);
+                    // このユーザーの営業開始時刻を使って営業日を計算
+                    const recordDateStr = getBusinessDate(record.timestamp, userBusinessStartHour);
+                    if (recordDateStr === userDateStr) {
+                      dayRecords.push(record);
+                    }
+                  });
+                  
+                  console.log(`[AnalysisView] User ${user.name} (${user.uid}), date ${userDateStr}: Found ${allRecordsInRange.length} records in timestamp range, ${dayRecords.length} records match business date`);
+                  console.log(`[AnalysisView] User ${user.name}, records in range:`, allRecordsInRange.map(r => ({ 
+                    timestamp: new Date(r.timestamp).toISOString(), 
+                    businessDate: getBusinessDate(r.timestamp, userBusinessStartHour),
+                    amount: r.amount, 
+                    isSimple: r.remarks?.includes('簡易モード') 
+                  })));
+                  console.log(`[AnalysisView] User ${user.name}, matching records:`, dayRecords.map(r => ({ id: r.id, amount: r.amount, isSimple: r.remarks?.includes('簡易モード') })));
+                  
+                  // タイムスタンプ範囲のクエリが空の場合、または営業日に一致するレコードが少ない場合、全件スキャンも試す
+                  // これは、タイムスタンプ範囲のクエリがインデックスエラーなどで正しく動作していない可能性があるため
+                  if (dayRecords.length === 0 || allRecordsInRange.length < 5) {
+                    console.log(`[AnalysisView] User ${user.name} (${user.uid}), date ${userDateStr}: Trying full scan as backup`);
+                    try {
+                      const allRecordsQuery = query(subcollectionRef, orderBy('timestamp', 'desc'));
+                      const allRecordsSnap = await getDocs(allRecordsQuery);
+                      if (!allRecordsSnap.empty) {
+                        const fullScanRecords: SalesRecord[] = [];
+                        allRecordsSnap.forEach((doc) => {
+                          const record = doc.data() as SalesRecord;
+                          // このユーザーの営業開始時刻を使って営業日を計算
+                          const recordDateStr = getBusinessDate(record.timestamp, userBusinessStartHour);
+                          if (recordDateStr === userDateStr) {
+                            fullScanRecords.push(record);
+                          }
+                        });
+                        // 全件スキャンで見つかったレコードを追加（重複排除は後で行う）
+                        dayRecords.push(...fullScanRecords);
+                        console.log(`[AnalysisView] User ${user.name} (${user.uid}), date ${userDateStr}: Found ${fullScanRecords.length} additional records from full subcollection scan`);
+                      }
+                    } catch (fullScanError: any) {
+                      console.log(`[AnalysisView] User ${user.name} (${user.uid}), full scan error:`, fullScanError?.code);
+                    }
                   }
-                });
-                
-                console.log(`[AnalysisView] User ${user.uid}, date ${dateStr}: Found ${dayRecords.length} records:`, 
-                  dayRecords.map(r => ({ id: r.id, amount: r.amount, isSimple: r.remarks?.includes('簡易モード') })));
-                
-                // ★修正: 簡易モード優先でフィルタリングしてから合計を計算
-                const filteredRecords = filterRecordsWithSimpleModePriority(dayRecords, businessStartHour);
-                console.log(`[AnalysisView] User ${user.uid}, date ${dateStr}: After filtering: ${filteredRecords.length} records, total:`, 
-                  filteredRecords.reduce((sum, r) => sum + r.amount, 0));
-                dayTotal = filteredRecords.reduce((sum: number, r: SalesRecord) => sum + (r.amount || 0), 0);
-              } else {
-                // サブコレクションにデータがない場合、配列形式から読み込む（後方互換性）
-                const history = user.history || [];
-                const dayRecords = history.filter((r: any) => {
-                  const recordDateStr = getBusinessDate(r.timestamp, businessStartHour);
-                  return recordDateStr === dateStr;
-                });
-                
-                // ★修正: 簡易モード優先でフィルタリングしてから合計を計算
-                const filteredRecords = filterRecordsWithSimpleModePriority(dayRecords, businessStartHour);
-                dayTotal = filteredRecords.reduce((sum: number, r: SalesRecord) => sum + (r.amount || 0), 0);
+                } else {
+                  console.log(`[AnalysisView] User ${user.name} (${user.uid}), date ${userDateStr}: Subcollection query returned empty`);
+                  
+                  // クエリが空の場合、全件取得してからフィルタリングを試す
+                  try {
+                    const allRecordsQuery = query(subcollectionRef, orderBy('timestamp', 'desc'));
+                    const allRecordsSnap = await getDocs(allRecordsQuery);
+                    if (!allRecordsSnap.empty) {
+                      allRecordsSnap.forEach((doc) => {
+                        const record = doc.data() as SalesRecord;
+                        // このユーザーの営業開始時刻を使って営業日を計算
+                        const recordDateStr = getBusinessDate(record.timestamp, userBusinessStartHour);
+                        if (recordDateStr === userDateStr) {
+                          dayRecords.push(record);
+                        }
+                      });
+                      console.log(`[AnalysisView] User ${user.name} (${user.uid}), date ${userDateStr}: Found ${dayRecords.length} records from full subcollection scan`);
+                    }
+                  } catch (fullScanError: any) {
+                    console.log(`[AnalysisView] User ${user.name} (${user.uid}), full scan error:`, fullScanError?.code);
+                  }
+                }
+              } catch (subcollectionError: any) {
+                console.log(`[AnalysisView] User ${user.name} (${user.uid}), subcollection query error:`, subcollectionError?.code, subcollectionError?.message);
+                // サブコレクションのクエリが失敗した場合、配列形式から読み込む
               }
+              
+              // サブコレクションからデータが取得できなかった場合、配列形式から読み込む（後方互換性）
+              if (dayRecords.length === 0) {
+                const history = user.history || [];
+                dayRecords = history.filter((r: any) => {
+                  // このユーザーの営業開始時刻を使って営業日を計算
+                  const recordDateStr = getBusinessDate(r.timestamp, userBusinessStartHour);
+                  return recordDateStr === userDateStr;
+                });
+                
+                console.log(`[AnalysisView] User ${user.name} (${user.uid}), date ${userDateStr}: Found ${dayRecords.length} records from history array`);
+              }
+              
+              // 重複排除（同じIDのレコードが複数ある場合、最初の1つだけを使用）
+              const uniqueRecordsMap: Record<string, SalesRecord> = {};
+              dayRecords.forEach((r: SalesRecord) => {
+                if (r.id && !uniqueRecordsMap[r.id]) {
+                  uniqueRecordsMap[r.id] = r;
+                } else if (!r.id) {
+                  // IDがない場合はタイムスタンプで重複排除
+                  const key = `${r.timestamp}_${r.amount}_${r.pickupLocation || ''}`;
+                  if (!uniqueRecordsMap[key]) {
+                    uniqueRecordsMap[key] = r;
+                  }
+                }
+              });
+              const uniqueDayRecords = Object.values(uniqueRecordsMap);
+              
+              console.log(`[AnalysisView] User ${user.name} (${user.uid}), date ${userDateStr}: After deduplication: ${uniqueDayRecords.length} records (was ${dayRecords.length})`);
+              console.log(`[AnalysisView] User ${user.name} (${user.uid}), records before filtering:`, uniqueDayRecords.map(r => ({ id: r.id, amount: r.amount, isSimple: r.remarks?.includes('簡易モード') })));
+              
+              // ★修正: 簡易モード優先でフィルタリングしてから合計を計算（このユーザーの営業開始時刻を使用）
+              const filteredRecords = filterRecordsWithSimpleModePriority(uniqueDayRecords, userBusinessStartHour);
+              dayTotal = filteredRecords.reduce((sum: number, r: SalesRecord) => sum + (r.amount || 0), 0);
+              console.log(`[AnalysisView] User ${user.name}, after filtering: ${filteredRecords.length} records, total: ${dayTotal}`);
+              console.log(`[AnalysisView] User ${user.name}, filtered records:`, filteredRecords.map(r => ({ id: r.id, amount: r.amount, isSimple: r.remarks?.includes('簡易モード') })));
 
               if (dayTotal > 0) {
                 ranking.push({
@@ -311,19 +449,29 @@ const AnalysisView: React.FC<AnalysisViewProps> = ({ history, stats, onNavigateT
                   amount: dayTotal,
                   isMe: user.uid === currentUserId,
                 });
+                console.log(`[AnalysisView] Added user ${user.name} to ranking with amount: ${dayTotal}`);
               }
             } catch (userError: any) {
+              console.error(`[AnalysisView] Error processing user ${user.name} (${user.uid}):`, userError);
               // インデックスエラーの場合、配列形式から読み込む（後方互換性）
-              if (userError?.code === 'failed-precondition') {
+              if (userError?.code === 'failed-precondition' || userError?.code === 'unavailable') {
+                const userBusinessStartHour = user.businessStartHour ?? businessStartHour;
+                const userSelectedDateWithBusinessHour = new Date(selectedDate);
+                userSelectedDateWithBusinessHour.setHours(userBusinessStartHour, 0, 0, 0);
+                const userDateStr = getBusinessDate(userSelectedDateWithBusinessHour.getTime(), userBusinessStartHour);
+                
                 const history = user.history || [];
                 const dayRecords = history.filter((r: any) => {
-                  const recordDateStr = getBusinessDate(r.timestamp, businessStartHour);
-                  return recordDateStr === dateStr;
+                  const recordDateStr = getBusinessDate(r.timestamp, userBusinessStartHour);
+                  return recordDateStr === userDateStr;
                 });
                 
-                // ★修正: 簡易モード優先でフィルタリングしてから合計を計算
-                const filteredRecords = filterRecordsWithSimpleModePriority(dayRecords, businessStartHour);
+                console.log(`[AnalysisView] User ${user.name} (${user.uid}), fallback to history array: Found ${dayRecords.length} records`);
+                
+                // ★修正: 簡易モード優先でフィルタリングしてから合計を計算（このユーザーの営業開始時刻を使用）
+                const filteredRecords = filterRecordsWithSimpleModePriority(dayRecords, userBusinessStartHour);
                 const dayTotal = filteredRecords.reduce((sum: number, r: SalesRecord) => sum + (r.amount || 0), 0);
+                console.log(`[AnalysisView] User ${user.name}, after filtering: ${filteredRecords.length} records, total: ${dayTotal}`);
                 if (dayTotal > 0) {
                   ranking.push({
                     uid: user.uid,
@@ -332,10 +480,13 @@ const AnalysisView: React.FC<AnalysisViewProps> = ({ history, stats, onNavigateT
                     amount: dayTotal,
                     isMe: user.uid === currentUserId,
                   });
+                  console.log(`[AnalysisView] Added user ${user.name} to ranking with amount: ${dayTotal}`);
                 }
               }
             }
           }
+
+          console.log(`[AnalysisView] Final ranking count: ${ranking.length}`);
 
           // ソートしてランク付け
           ranking.sort((a, b) => b.amount - a.amount);
