@@ -51,7 +51,8 @@ export const SettingsModal: React.FC<{
   onClose: () => void;
   onImpersonate?: (uid: string) => void;
   onNavigateToDashboard?: () => void;
-}> = ({ stats, isAdmin, onUpdateStats, onImportRecords, onClose, onImpersonate, onNavigateToDashboard }) => {
+  history?: SalesRecord[];
+}> = ({ stats, isAdmin, onUpdateStats, onImportRecords, onClose, onImpersonate, onNavigateToDashboard, history = [] }) => {
   const [activeTab, setActiveTab] = useState<'basic' | 'display' | 'admin'>('basic');
   
   const [shimebi, setShimebi] = useState(stats.shimebiDay.toString());
@@ -184,23 +185,84 @@ export const SettingsModal: React.FC<{
     return `${end.getFullYear()} / ${String(end.getMonth() + 1).padStart(2, '0')}`;
   }, [viewDate, shimebi, businessStartHour]);
 
+  // 売上データがある日を判定する関数
+  // 簡易モードと詳細モードの両方のデータを考慮
+  const hasSalesData = useMemo(() => {
+    const salesDateMap: Record<string, boolean> = {};
+    // 重複排除のため、日付ごとにグループ化
+    const dateMap: Record<string, SalesRecord[]> = {};
+    
+    history.forEach(record => {
+      const businessDateStr = getBusinessDate(record.timestamp, businessStartHour);
+      if (!dateMap[businessDateStr]) {
+        dateMap[businessDateStr] = [];
+      }
+      dateMap[businessDateStr].push(record);
+    });
+    
+    // 各日付について、簡易モードがあれば簡易モードのみ、なければ詳細モードのみをカウント
+    Object.keys(dateMap).forEach(dateStr => {
+      const dayRecords = dateMap[dateStr];
+      const hasSimpleMode = dayRecords.some(r => r.remarks?.includes('簡易モード'));
+      
+      if (hasSimpleMode) {
+        // 簡易モードがあれば、簡易モードのレコードがある日としてマーク
+        const simpleRecords = dayRecords.filter(r => r.remarks?.includes('簡易モード'));
+        if (simpleRecords.length > 0) {
+          salesDateMap[dateStr] = true;
+        }
+      } else {
+        // 簡易モードがなければ、詳細モードのレコードがある日としてマーク
+        const detailedRecords = dayRecords.filter(r => !r.remarks?.includes('簡易モード'));
+        if (detailedRecords.length > 0) {
+          salesDateMap[dateStr] = true;
+        }
+      }
+    });
+    
+    return salesDateMap;
+  }, [history, businessStartHour]);
+
   const dutyCountInView = useMemo(() => {
     const sDay = parseInt(shimebi);
     const effectiveShimebi = isNaN(sDay) ? 20 : sDay;
     const { start: billingStart, end: billingEnd } = getBillingPeriod(viewDate, effectiveShimebi, businessStartHour);
     const billingStartStr = formatDate(billingStart);
     const billingEndStr = formatDate(billingEnd);
+    const todayBusinessDate = getBusinessDate(Date.now(), businessStartHour);
     
-    return calendarDates.filter(d => {
+    // 営業期間内の日付を集計
+    const selectedDaysSet = new Set<string>();
+    
+    calendarDates.forEach(d => {
       const dateWithHour = new Date(d);
       dateWithHour.setHours(businessStartHour, 0, 0, 0);
       const businessDateStr = getBusinessDate(dateWithHour.getTime(), businessStartHour);
       const isInBillingPeriod = businessDateStr >= billingStartStr && businessDateStr <= billingEndStr;
-      return isInBillingPeriod && dutyDays.includes(businessDateStr);
-    }).length;
-  }, [calendarDates, dutyDays, viewDate, shimebi, businessStartHour]);
+      
+      if (isInBillingPeriod) {
+        const isPast = businessDateStr < todayBusinessDate;
+        const hasSales = hasSalesData[businessDateStr] || false;
+        const isDuty = dutyDays.includes(businessDateStr);
+        
+        // 選択されている日（dutyDaysに含まれている日）または過去の出勤日（売上データがある過去日）をカウント
+        if (isDuty || (isPast && hasSales)) {
+          selectedDaysSet.add(businessDateStr);
+        }
+      }
+    });
+    
+    return selectedDaysSet.size;
+  }, [calendarDates, dutyDays, viewDate, shimebi, businessStartHour, hasSalesData]);
 
   const toggleDutyDay = (dateStr: string) => {
+    // 過去日は選択/解除できない（売上データの有無に関係なく）
+    const todayBusinessDate = getBusinessDate(Date.now(), businessStartHour);
+    const isPast = dateStr < todayBusinessDate;
+    if (isPast) {
+      return; // 過去日は何もしない（選択日数を変動させない）
+    }
+    
     setDutyDays(prev => 
       prev.includes(dateStr) ? prev.filter(d => d !== dateStr) : [...prev, dateStr]
     );
@@ -588,25 +650,39 @@ const toggleFollowingUser = (uid: string) => {
                         </div>
                         <div className="grid grid-cols-7 gap-2">
                             {calendarDates.map(date => {
+                                // カレンダーの日付を営業開始時刻に設定してから営業日を計算
+                                // これにより、時刻00:00:00でも正しい営業日が取得できる
+                                const dateWithBusinessHour = new Date(date);
+                                dateWithBusinessHour.setHours(businessStartHour, 0, 0, 0);
+                                const businessDateStr = getBusinessDate(dateWithBusinessHour.getTime(), businessStartHour);
+                                
                                 const dateStr = formatDate(date);
-                                const businessDateStr = getBusinessDate(date.getTime(), businessStartHour);
                                 const isDuty = dutyDays.includes(businessDateStr);
                                 const todayBusinessDate = getBusinessDate(Date.now(), businessStartHour);
                                 const isToday = businessDateStr === todayBusinessDate;
                                 const isPast = businessDateStr < todayBusinessDate;
+                                const hasSales = hasSalesData[businessDateStr] || false;
+                                
+                                // 売上データがある過去日は黄色、解除不可
+                                // 売上データがない過去日は選択解除可能（非選択状態）
+                                // 未来日は通常通り選択可能
+                                const isLocked = isPast && hasSales; // 売上データがある過去日はロック
+                                const isSelectable = !isPast || !hasSales; // 過去日でも売上データがなければ選択可能
                                 
                                 return (
                                     <button
                                         key={dateStr}
                                         onClick={() => toggleDutyDay(businessDateStr)}
-                                        disabled={isPast}
+                                        disabled={isLocked}
                                         className={`aspect-square rounded-xl flex items-center justify-center transition-all ${
-                                            isDuty
-                                                ? 'bg-orange-500 text-gray-900 font-black'
-                                                : isPast
-                                                ? 'bg-gray-800/50 text-gray-500 cursor-not-allowed'
+                                            isPast && hasSales
+                                                ? 'bg-yellow-500 text-gray-900 font-black cursor-not-allowed' // 売上データがある過去日は黄色（選択状態に関係なく）
+                                                : isPast && !hasSales
+                                                ? 'bg-gray-800/50 text-gray-500' // 売上データがない過去日は非選択状態（グレー、isDutyに関係なく）
+                                                : isDuty
+                                                ? 'bg-orange-500 text-gray-900 font-black' // 未来日の選択日はオレンジ
                                                 : 'bg-gray-800 text-white font-bold hover:bg-gray-700'
-                                        } ${isToday ? 'ring-2 ring-orange-500' : ''} active:scale-95`}
+                                        } ${isToday ? 'ring-2 ring-orange-500' : ''} ${isSelectable ? 'active:scale-95' : ''}`}
                                     >
                                         <span className="text-base">{date.getDate()}</span>
                                     </button>

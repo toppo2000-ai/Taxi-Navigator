@@ -6,8 +6,6 @@ import {
   Skull,
   Users,
   CreditCard,
-  Clock,
-  Calendar,
   ChevronLeft,
   ChevronRight
 } from 'lucide-react';
@@ -101,37 +99,6 @@ const AnalyticsView: React.FC<AnalyticsViewProps> = ({ history, stats }) => {
         percent: payTotal > 0 ? (amount / payTotal) * 100 : 0 
       }));
 
-    // 時間帯別（24時間を8つの時間帯に分割）
-    const hours = Array(8).fill(0);
-    filteredRecords.forEach(r => {
-      const hour = new Date(r.timestamp).getHours();
-      // 0-2: 0, 3-5: 1, 6-8: 2, 9-11: 3, 12-14: 4, 15-17: 5, 18-20: 6, 21-23: 7
-      const index = Math.floor(hour / 3);
-      if (index >= 0 && index < 8) {
-        hours[index] += r.amount;
-      }
-    });
-    const maxHourVal = Math.max(...hours, 1);
-    const hourlyData = hours.map((val, i) => {
-      const labels = ["0-3", "3-6", "6-9", "9-12", "12-15", "15-18", "18-21", "21-24"];
-      return {
-        label: labels[i],
-        value: val,
-        percent: maxHourVal > 0 ? (val / maxHourVal) * 100 : 0
-      };
-    });
-
-    // 曜日別
-    const days = Array(7).fill(0);
-    filteredRecords.forEach(r => { 
-      const dayOfWeek = new Date(r.timestamp).getDay();
-      days[dayOfWeek] += r.amount; 
-    });
-    const maxDayVal = Math.max(...days, 1);
-    const dayOfWeekData = days.map((val, i) => ({ 
-      value: val, 
-      percent: maxDayVal > 0 ? (val / maxDayVal) * 100 : 0 
-    }));
 
     return {
       totalSales,
@@ -147,13 +114,10 @@ const AnalyticsView: React.FC<AnalyticsViewProps> = ({ history, stats }) => {
         femalePer: totalPax > 0 ? (female/totalPax)*100 : 0 
       },
       paymentData,
-      hourlyData,
-      dayOfWeekData,
       records: filteredRecords
     };
   }, [history, targetDate, shimebiDay, businessStartHour]);
 
-  const weekNames = ['日', '月', '火', '水', '木', '金', '土'];
 
   return (
     <div className="p-4 pb-32 space-y-5 w-full overflow-hidden animate-in fade-in duration-500">
@@ -264,55 +228,13 @@ const AnalyticsView: React.FC<AnalyticsViewProps> = ({ history, stats }) => {
               ))}
             </div>
           </div>
+        </div>
 
-          {/* Hourly & Daily Trends */}
-          <div className="bg-[#1A222C] p-5 rounded-[28px] border border-gray-800 shadow-lg space-y-6">
-            {/* Hourly */}
-            <div className="space-y-3">
-              <h4 className="text-xs font-black text-gray-500 uppercase tracking-widest flex items-center gap-2">
-                <Clock className="w-4 h-4 text-amber-500" /> 時間帯別
-              </h4>
-              <div className="h-24 flex items-end gap-1">
-                {monthlyMetrics.hourlyData.map((d, i) => (
-                  <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                    <div className="w-full bg-gray-800/50 rounded-t-sm relative group" style={{ height: '100%' }}>
-                      <div 
-                        className="absolute bottom-0 w-full bg-amber-500 rounded-t-sm transition-all duration-500" 
-                        style={{ height: `${d.percent}%` }} 
-                      />
-                    </div>
-                    <span className="text-[9px] font-bold text-gray-400">{d.label}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-            
-            {/* Day of Week */}
-            <div className="space-y-3 pt-2 border-t border-gray-800/50">
-              <h4 className="text-xs font-black text-gray-500 uppercase tracking-widest flex items-center gap-2">
-                <Calendar className="w-4 h-4 text-blue-500" /> 曜日別
-              </h4>
-              <div className="flex justify-between gap-1 h-16 items-end">
-                {weekNames.map((day, i) => {
-                  const d = monthlyMetrics.dayOfWeekData[i];
-                  const color = i === 0 ? 'bg-red-500' : i === 6 ? 'bg-blue-500' : 'bg-green-500';
-                  return (
-                    <div key={day} className="flex-1 flex flex-col items-center gap-1">
-                      <div 
-                        className={`w-1.5 rounded-full ${color}/40 transition-all duration-500`} 
-                        style={{ height: `${Math.max(10, d.percent)}%` }}
-                      >
-                        <div className={`w-full h-full ${color} opacity-80`} />
-                      </div>
-                      <span className={`text-[9px] font-bold ${i===0||i===6 ? 'text-white':'text-gray-600'}`}>
-                        {day}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
+        {/* 開発中メッセージ */}
+        <div className="bg-gray-800 p-6 rounded-[24px] border-2 border-blue-500/50 text-center">
+          <p className="text-sm text-gray-400 font-bold">
+            このページは現在開発中です
+          </p>
         </div>
       </section>
     </div>

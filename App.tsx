@@ -2487,7 +2487,8 @@ const handleStart = (goal: number, hours: number, startOdo?: number) => {
           <SettingsModal 
             stats={monthlyStats} 
             isAdmin={userProfile?.role === 'admin'} 
-            onUpdateStats={handleUpdateMonthlyStats} 
+            onUpdateStats={handleUpdateMonthlyStats}
+            history={history}
             onClose={() => {
               console.log('SettingsModal onClose called');
               setIsSettingsOpen(false);
