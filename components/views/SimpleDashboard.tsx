@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { DollarSign, Target, Calendar, Edit2, ChevronDown, Save, TrendingUp, X, User, ChevronLeft, ChevronRight } from 'lucide-react';
+import { DollarSign, Target, Calendar, Edit2, ChevronDown, Save, TrendingUp, X, User, ChevronLeft, ChevronRight, CalendarDays } from 'lucide-react';
 import { MonthlyStats, SalesRecord } from '../../types';
 import { getBillingPeriod, formatDate, fromCommaSeparated, toCommaSeparated, getBusinessDate } from '../../utils';
 import { doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
@@ -16,7 +16,6 @@ interface SimpleDashboardProps {
 
 export const SimpleDashboard: React.FC<SimpleDashboardProps> = ({ stats, onUpdateStats, onNavigateToInput, history = [] }) => {
   const [monthlyGoal, setMonthlyGoal] = useState(stats.monthlyGoal.toLocaleString());
-  const [remainingDays, setRemainingDays] = useState<string>((stats.plannedWorkDays || 0).toString());
   const [shimebiDay, setShimebiDay] = useState<string>(stats.shimebiDay.toString());
   const [isEditingGoal, setIsEditingGoal] = useState(false);
   const [isEditingDays, setIsEditingDays] = useState(false);
@@ -32,6 +31,55 @@ export const SimpleDashboard: React.FC<SimpleDashboardProps> = ({ stats, onUpdat
 
   const businessStartHour = stats.businessStartHour ?? 9;
   const currentShimebiDay = parseInt(shimebiDay) || (stats.shimebiDay || 20);
+  
+  // 残り出勤日数は当月の営業期間内の未来日のみをカウント（過去の出勤日は除外）
+  // 営業期間ベースで考える（例：締め日20日、本日1/8の場合、当月は12/21～1/20、翌月は1/21～2/20）
+  // 翌月の営業期間（1/21～2/20）の日付はカウントに含まない
+  const initialRemainingDays = useMemo(() => {
+    if (stats.dutyDays && stats.dutyDays.length > 0) {
+      const todayBusinessDate = getBusinessDate(Date.now(), businessStartHour);
+      // 当月の営業期間を取得
+      const { start, end } = getBillingPeriod(new Date(), currentShimebiDay, businessStartHour);
+      const startStr = formatDate(start);
+      const endStr = formatDate(end);
+      
+      // 日付文字列を数値に変換して比較（より確実な比較のため）
+      const parseDateStr = (dateStr: string): number => {
+        const [year, month, day] = dateStr.split('/').map(Number);
+        return year * 10000 + month * 100 + day;
+      };
+      
+      const todayNum = parseDateStr(todayBusinessDate);
+      const startNum = parseDateStr(startStr);
+      const endNum = parseDateStr(endStr);
+      
+      // 当月の営業期間内の未来日のみをカウント
+      // 翌月の営業期間（次の営業期間）の日付は除外
+      const futureDays = stats.dutyDays.filter(dateStr => {
+        const dateNum = parseDateStr(dateStr);
+        
+        // 今日以降の日付のみ
+        if (dateNum < todayNum) {
+          return false;
+        }
+        
+        // 当月の営業期間内の日付のみ（startNum以上、endNum以下）
+        if (dateNum >= startNum && dateNum <= endNum) {
+          return true;
+        }
+        
+        return false;
+      });
+      return futureDays.length.toString();
+    }
+    return (stats.plannedWorkDays || 0).toString();
+  }, [stats.dutyDays, stats.plannedWorkDays, businessStartHour, currentShimebiDay]);
+  const [remainingDays, setRemainingDays] = useState<string>(initialRemainingDays);
+  
+  // initialRemainingDaysが変更されたときにremainingDaysを更新
+  useEffect(() => {
+    setRemainingDays(initialRemainingDays);
+  }, [initialRemainingDays]);
   
   // stats.shimebiDayの変更を監視
   useEffect(() => {
@@ -164,14 +212,13 @@ export const SimpleDashboard: React.FC<SimpleDashboardProps> = ({ stats, onUpdat
     return dateStrings.sort();
   }, [end, businessStartHour, todayBusinessDate]);
 
-  // データがある日付を追跡（簡易モードのレコードがある日）
+  // データがある日付を追跡（簡易モードと詳細モードの両方のレコードがある日）
+  // 詳細モードの出勤データがある過去日を黄色で表示するため
   const datesWithData = useMemo(() => {
     const dateSet = new Set<string>();
     history.forEach(record => {
-      if (record.remarks?.includes('簡易モード')) {
-        const dateStr = getBusinessDate(record.timestamp, businessStartHour);
-        dateSet.add(dateStr);
-      }
+      const dateStr = getBusinessDate(record.timestamp, businessStartHour);
+      dateSet.add(dateStr);
     });
     return dateSet;
   }, [history, businessStartHour]);
@@ -223,20 +270,76 @@ export const SimpleDashboard: React.FC<SimpleDashboardProps> = ({ stats, onUpdat
     return days;
   }, [calendarMonth, currentShimebiDay, businessStartHour]);
 
+  // 選択した日数をカウント（詳細モードと同じロジック）
+  const dutyCountInView = useMemo(() => {
+    const { start: billingStart, end: billingEnd } = getBillingPeriod(calendarMonth, currentShimebiDay, businessStartHour);
+    const billingStartStr = formatDate(billingStart);
+    const billingEndStr = formatDate(billingEnd);
+    const todayBusinessDate = getBusinessDate(Date.now(), businessStartHour);
+    
+    // カレンダーに表示されている日付の中で、カウントする日数を計算
+    // カウントする日：
+    // 1. 出勤した日（黄色状態）：過去日で売上データがある日
+    // 2. 選択した日（オレンジ状態）：未来日でselectedWorkDaysに含まれている日
+    // カウントしない日：
+    // - 出勤していない日
+    // - 選択不可の日（過去日でselectedWorkDaysに含まれているが売上データがない日）
+    const selectedDaysSet = new Set<string>();
+    
+    calendarDays.forEach(({ date, isInBillingPeriod }) => {
+      if (!isInBillingPeriod) return;
+      
+      const dateWithHour = new Date(date);
+      dateWithHour.setHours(businessStartHour, 0, 0, 0);
+      const businessDateStr = getBusinessDate(dateWithHour.getTime(), businessStartHour);
+      
+      const isPast = businessDateStr < todayBusinessDate;
+      const hasSales = datesWithData.has(businessDateStr);
+      const isDuty = selectedWorkDays.includes(businessDateStr);
+      
+      // 出勤した日（黄色状態）：過去日で売上データがある日
+      if (isPast && hasSales) {
+        selectedDaysSet.add(businessDateStr);
+      }
+      // 選択した日（オレンジ状態）：未来日でselectedWorkDaysに含まれている日
+      else if (!isPast && isDuty) {
+        selectedDaysSet.add(businessDateStr);
+      }
+    });
+    
+    return selectedDaysSet.size;
+  }, [calendarDays, selectedWorkDays, calendarMonth, currentShimebiDay, businessStartHour, datesWithData]);
+
   // モーダルを開く時に選択済み日付を読み込む
   useEffect(() => {
     if (showDaysCalendarModal) {
-      // 現在の残り営業日数から、選択可能な日付を逆算して設定
-      // 実際には、既存の選択があればそれを読み込むべきですが、
-      // 簡易化のため、現在の日数分の日付を選択状態にする
-      const currentDays = parseInt(remainingDays) || 0;
-      
-      if (currentDays > 0 && availableDateStrings.length >= currentDays) {
-        // 今日からcurrentDays分の日付を選択
-        const dates = availableDateStrings.slice(0, currentDays);
-        setSelectedWorkDays(dates);
+      // stats.dutyDaysから選択済み日付を読み込む（保存した日付を復元）
+      if (stats.dutyDays && stats.dutyDays.length > 0) {
+        setSelectedWorkDays([...stats.dutyDays]);
+        // 残り出勤日数は当月の営業期間内の未来日のみをカウント
+        const todayBusinessDate = getBusinessDate(Date.now(), businessStartHour);
+        const { start, end } = getBillingPeriod(new Date(), currentShimebiDay, businessStartHour);
+        const startStr = formatDate(start);
+        const endStr = formatDate(end);
+        
+        // 日付文字列を数値に変換して比較
+        const parseDateStr = (dateStr: string): number => {
+          const [year, month, day] = dateStr.split('/').map(Number);
+          return year * 10000 + month * 100 + day;
+        };
+        
+        const todayNum = parseDateStr(todayBusinessDate);
+        const startNum = parseDateStr(startStr);
+        const endNum = parseDateStr(endStr);
+        
+        const futureDays = stats.dutyDays.filter(dateStr => {
+          const dateNum = parseDateStr(dateStr);
+          return dateNum >= todayNum && dateNum >= startNum && dateNum <= endNum;
+        });
+        setRemainingDays(futureDays.length.toString());
       } else {
         setSelectedWorkDays([]);
+        setRemainingDays('0');
       }
       
       // カレンダーの月を営業期間の終了日の月に設定（締め日がある月を表示）
@@ -245,7 +348,7 @@ export const SimpleDashboard: React.FC<SimpleDashboardProps> = ({ stats, onUpdat
       const { end } = getBillingPeriod(new Date(), currentShimebiDay, businessStartHour);
       setCalendarMonth(end);
     }
-  }, [showDaysCalendarModal, remainingDays, availableDateStrings, businessStartHour, currentShimebiDay]);
+  }, [showDaysCalendarModal, stats.dutyDays, businessStartHour, currentShimebiDay]);
 
   const handleSaveGoal = async () => {
     scrollPositionRef.current = window.scrollY;
@@ -297,7 +400,7 @@ export const SimpleDashboard: React.FC<SimpleDashboardProps> = ({ stats, onUpdat
       window.scrollTo({ top: scrollPositionRef.current, behavior: 'auto' });
     }, 100);
   };
-  
+
   const handleOpenModal = (modalSetter: () => void) => {
     scrollPositionRef.current = window.scrollY;
     modalSetter();
@@ -305,9 +408,35 @@ export const SimpleDashboard: React.FC<SimpleDashboardProps> = ({ stats, onUpdat
   
   const handleSaveDaysCalendar = async () => {
     scrollPositionRef.current = window.scrollY;
-    const daysCount = selectedWorkDays.length;
+    // 残り出勤日数は当月の営業期間内の未来日のみをカウント（過去の出勤日は除外）
+    const todayBusinessDate = getBusinessDate(Date.now(), businessStartHour);
+    // 当月の営業期間を取得
+    const { start, end } = getBillingPeriod(new Date(), currentShimebiDay, businessStartHour);
+    const startStr = formatDate(start);
+    const endStr = formatDate(end);
+    
+    // 日付文字列を数値に変換して比較
+    const parseDateStr = (dateStr: string): number => {
+      const [year, month, day] = dateStr.split('/').map(Number);
+      return year * 10000 + month * 100 + day;
+    };
+    
+    const todayNum = parseDateStr(todayBusinessDate);
+    const startNum = parseDateStr(startStr);
+    const endNum = parseDateStr(endStr);
+    
+    // 当月の営業期間内の未来日のみをカウント
+    const futureDays = selectedWorkDays.filter(dateStr => {
+      const dateNum = parseDateStr(dateStr);
+      return dateNum >= todayNum && dateNum >= startNum && dateNum <= endNum;
+    });
+    const daysCount = futureDays.length;
     setRemainingDays(daysCount.toString());
-    onUpdateStats({ plannedWorkDays: daysCount });
+    // 選択した日付の配列をdutyDaysとして保存（詳細モードと同じ）
+    onUpdateStats({ 
+      plannedWorkDays: daysCount,
+      dutyDays: selectedWorkDays 
+    });
     setShowDaysCalendarModal(false);
     
     // public_statusも更新
@@ -328,15 +457,88 @@ export const SimpleDashboard: React.FC<SimpleDashboardProps> = ({ stats, onUpdat
   };
 
   const toggleWorkDay = (dateStr: string) => {
-    const isAvailable = availableDateStrings.includes(dateStr);
-    if (!isAvailable) return;
+    const todayBusinessDate = getBusinessDate(Date.now(), businessStartHour);
+    const isPast = dateStr < todayBusinessDate;
+    // 過去日は選択/解除できない
+    if (isPast) {
+      return;
+    }
     
+    // 現在表示している月の営業期間を取得
+    const sDay = parseInt(shimebiDay);
+    const effectiveShimebi = isNaN(sDay) ? 20 : sDay;
+    const { start, end } = getBillingPeriod(calendarMonth, effectiveShimebi, businessStartHour);
+    const startStr = formatDate(start);
+    const endStr = formatDate(end);
+    
+    // 現在表示している月の営業期間内の日付かどうかを確認
+    const isInCurrentViewPeriod = dateStr >= startStr && dateStr <= endStr;
+    
+    if (!isInCurrentViewPeriod) {
+      // 現在表示している月の営業期間外の日付は操作しない
+      return;
+    }
+    
+    const hasData = datesWithData.has(dateStr);
+    // データがある日（選択不可）は選択できない
+    if (hasData) return;
+    
+    // 現在表示している月の営業期間内の日付のみを操作
+    // 他の月の日付は保持
     setSelectedWorkDays(prev => {
-      if (prev.includes(dateStr)) {
-        return prev.filter(d => d !== dateStr);
+      // 現在表示している月の営業期間外の日付を保持
+      const otherMonthDays = prev.filter(d => {
+        return d < startStr || d > endStr;
+      });
+      
+      // 現在表示している月の営業期間内の日付を操作
+      const currentMonthDays = prev.filter(d => {
+        return d >= startStr && d <= endStr;
+      });
+      
+      if (currentMonthDays.includes(dateStr)) {
+        // 選択解除
+        return [...otherMonthDays, ...currentMonthDays.filter(d => d !== dateStr)];
       } else {
-        return [...prev, dateStr].sort();
+        // 選択追加
+        return [...otherMonthDays, ...currentMonthDays, dateStr];
       }
+    });
+  };
+
+  // 平日のみ自動選択
+  const handleAutoSetDutyDays = () => {
+    const sDay = parseInt(shimebiDay);
+    const effectiveShimebi = isNaN(sDay) ? 20 : sDay;
+    const { start, end } = getBillingPeriod(calendarMonth, effectiveShimebi, businessStartHour);
+    const startStr = formatDate(start);
+    const endStr = formatDate(end);
+    const todayBusinessDate = getBusinessDate(Date.now(), businessStartHour);
+    
+    // 現在表示している月の営業期間内の平日を取得
+    const newDutyDays: string[] = [];
+    let curr = new Date(start);
+    while (curr <= end) {
+      const dayOfWeek = curr.getDay();
+      if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+        const dateWithHour = new Date(curr);
+        dateWithHour.setHours(businessStartHour, 0, 0, 0);
+        const businessDateStr = getBusinessDate(dateWithHour.getTime(), businessStartHour);
+        const isPast = businessDateStr < todayBusinessDate;
+        // 過去日は除外、データがある日（選択不可）も除外
+        if (!isPast && !datesWithData.has(businessDateStr)) {
+          newDutyDays.push(businessDateStr);
+        }
+      }
+      curr.setDate(curr.getDate() + 1);
+    }
+    
+    // 現在表示している月の営業期間外の日付を保持
+    setSelectedWorkDays(prev => {
+      const otherMonthDays = prev.filter(d => {
+        return d < startStr || d > endStr;
+      });
+      return [...otherMonthDays, ...newDutyDays];
     });
   };
 
@@ -746,7 +948,7 @@ export const SimpleDashboard: React.FC<SimpleDashboardProps> = ({ stats, onUpdat
               {/* 選択日数表示 */}
               <div className="bg-gray-800 rounded-xl p-4 border-2 border-orange-500/50">
                 <div className="text-sm text-gray-400 mb-1">選択した日数</div>
-                <div className="text-2xl font-black text-white">{selectedWorkDays.length} 日</div>
+                <div className="text-2xl font-black text-white">{dutyCountInView} 日</div>
               </div>
 
               {/* 月選択（簡易モードと同じスタイル） */}
@@ -800,14 +1002,15 @@ export const SimpleDashboard: React.FC<SimpleDashboardProps> = ({ stats, onUpdat
                       );
                     }
                     
-                    const isAvailable = availableDateStrings.includes(businessDateStr);
                     const isSelected = selectedWorkDays.includes(businessDateStr);
                     const isToday = businessDateStr === todayBusinessDate;
                     const hasData = datesWithData.has(businessDateStr);
                     const isPast = businessDateStr < todayBusinessDate;
                     
-                    // データがある日は選択不可（クリック無効）、過去日は選択可能（グレーアウトはそのまま）
-                    const isClickable = isAvailable && !hasData;
+                    // 過去の出勤日（黄色で表示、選択不可）
+                    const isLocked = isPast && hasData;
+                    // 選択可能な日：当日または未来日で、データがない日、かつ営業期間内
+                    const isClickable = !isPast && !hasData && isInBillingPeriod;
                     
                     return (
                       <button
@@ -815,18 +1018,20 @@ export const SimpleDashboard: React.FC<SimpleDashboardProps> = ({ stats, onUpdat
                         onClick={() => isClickable && toggleWorkDay(businessDateStr)}
                         disabled={!isClickable}
                         className={`aspect-square rounded-xl flex items-center justify-center transition-all ${
-                          !isClickable
+                          isLocked
+                            ? 'bg-yellow-500 text-gray-900 font-black cursor-not-allowed' // 過去の出勤日（黄色）
+                            : !isClickable
                             ? hasData
-                            ? 'bg-orange-500 text-gray-900 font-black cursor-not-allowed' // データがある日はオレンジ色
+                            ? 'bg-orange-500 text-gray-900 font-black cursor-not-allowed' // データがある日はオレンジ色（選択不可）
                             : 'bg-gray-800/50 text-gray-500 cursor-not-allowed' // 選択不可
                             : isSelected
-                            ? 'bg-orange-500 text-gray-900 font-black'
+                            ? 'bg-orange-500 text-gray-900 font-black' // 選択した日（オレンジ）
                             : isPast
-                            ? 'bg-gray-800/50 text-gray-500' // 過去日はグレーアウト（選択可能）
+                            ? 'bg-gray-800/50 text-gray-500' // 過去日（グレーアウト、選択不可）
                             : isCurrentMonth
-                            ? 'bg-gray-800 text-white font-bold hover:bg-gray-700'
+                            ? 'bg-gray-800 text-white font-bold hover:bg-gray-700' // 選択可能な未来日
                             : 'bg-gray-800/50 text-gray-500'
-                        } ${isToday ? 'ring-2 ring-orange-500' : ''} active:scale-95`}
+                        } ${isToday ? 'ring-2 ring-orange-500' : ''} ${isClickable ? 'active:scale-95' : ''}`}
                       >
                         <span className="text-base">{date.getDate()}</span>
                       </button>
@@ -835,12 +1040,21 @@ export const SimpleDashboard: React.FC<SimpleDashboardProps> = ({ stats, onUpdat
                 </div>
               </div>
 
+              {/* 平日のみ自動選択ボタン */}
+              <button 
+                onClick={handleAutoSetDutyDays}
+                className="w-full mt-4 py-3 bg-gray-800 border border-gray-700 rounded-xl text-sm font-bold text-gray-400 hover:bg-gray-700 active:scale-95 transition-all flex items-center justify-center gap-2"
+              >
+                <CalendarDays className="w-4 h-4" />
+                平日のみ自動選択 (約20日)
+              </button>
+
               {/* 保存ボタン */}
               <button
                 onClick={handleSaveDaysCalendar}
-                className="w-full py-4 bg-orange-500 text-white font-black text-lg rounded-xl hover:bg-orange-600 active:scale-95 transition-all"
+                className="w-full mt-4 py-4 bg-orange-500 text-white font-black text-lg rounded-xl hover:bg-orange-600 active:scale-95 transition-all"
               >
-                保存 ({selectedWorkDays.length} 日)
+                保存 ({dutyCountInView} 日)
               </button>
             </div>
           </div>

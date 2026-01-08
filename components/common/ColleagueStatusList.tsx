@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Lock } from 'lucide-react';
+import { X, Lock, ArrowUpDown, ArrowDown, ArrowUp } from 'lucide-react';
 import { collection, onSnapshot, query, doc, getDocs, orderBy, where } from 'firebase/firestore';
 import { db, auth } from '../../services/firebase';
 import { SalesRecord } from '../../types';
@@ -25,6 +25,7 @@ export interface ColleagueData {
   uid: string;
   name: string;
   startTime: number;
+  todayStartTime?: number; // 当日の最初の出庫時刻
   plannedEndTime: number;
   sales: number;
   rideCount: number;
@@ -58,6 +59,8 @@ const ColleagueDetailModal: React.FC<{
         total: number
     }>({ records: [], total: 0 }); // nullではなく空配列で初期化
     const [isLoading, setIsLoading] = useState(true);
+    const [isSlim, setIsSlim] = useState(false); // スリム表示の状態
+    const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc'); // 並び順: 'desc'=降順（新しい順）、'asc'=昇順（古い順）
 
     useEffect(() => {
         let unsubDoc: (() => void) | null = null;
@@ -65,9 +68,18 @@ const ColleagueDetailModal: React.FC<{
 
         const loadData = async () => {
             try {
-                // 24時間以内のデータを抽出するための基準時刻
+                // 当日の営業日を取得
                 const now = Date.now();
-                const oneDayAgo = now - 24 * 60 * 60 * 1000;
+                const businessStartHour = user.businessStartHour || 9;
+                const todayBusinessDate = getBusinessDate(now, businessStartHour);
+                
+                // 当日の営業日の開始時刻と終了時刻を計算
+                // todayBusinessDateは文字列（例："2026/01/05"）なので、パースして日付オブジェクトを作成
+                const [year, month, day] = todayBusinessDate.split('/').map(Number);
+                const todayStart = new Date(year, month - 1, day, businessStartHour, 0, 0, 0);
+                const todayEnd = new Date(todayStart);
+                todayEnd.setDate(todayEnd.getDate() + 1);
+                todayEnd.setMilliseconds(todayEnd.getMilliseconds() - 1);
 
                 // 1. 現在進行中のシフトのレコードを取得（public_statusドキュメントから）
                 unsubDoc = onSnapshot(doc(db, "public_status", user.uid), async (docSnap) => {
@@ -77,12 +89,13 @@ const ColleagueDetailModal: React.FC<{
                         const data = docSnap.data();
                         const activeRecords: SalesRecord[] = data.records || [];
 
-                        // 2. サブコレクションから過去24時間のレコードを取得
+                        // 2. サブコレクションから当日のレコードを取得
                         try {
                             const subcollectionRef = collection(db, "public_status", user.uid, "history");
                             const subcollectionQuery = query(
                                 subcollectionRef,
-                                where("timestamp", ">=", oneDayAgo),
+                                where("timestamp", ">=", todayStart.getTime()),
+                                where("timestamp", "<=", todayEnd.getTime()),
                                 orderBy("timestamp", "desc")
                             );
                             const subcollectionSnap = await getDocs(subcollectionQuery);
@@ -92,16 +105,20 @@ const ColleagueDetailModal: React.FC<{
                                 subcollectionRecords.push(doc.data() as SalesRecord);
                             });
 
-                            // 3. 全レコードを結合（重複排除）
+                            // 3. 全レコードを結合（重複排除）し、当日の営業日のレコードのみをフィルタリング
                             const allRecordsMap = new Map<string, SalesRecord>();
                             [...activeRecords, ...subcollectionRecords].forEach((r) => {
-                                if (r && typeof r.timestamp === 'number' && r.timestamp > oneDayAgo) {
-                                    allRecordsMap.set(r.id, r);
+                                if (r && typeof r.timestamp === 'number') {
+                                    const recordBusinessDate = getBusinessDate(r.timestamp, businessStartHour);
+                                    // 当日の営業日のレコードのみを含める
+                                    if (recordBusinessDate === todayBusinessDate) {
+                                        allRecordsMap.set(r.id, r);
+                                    }
                                 }
                             });
 
                             const allRecords = Array.from(allRecordsMap.values())
-                                .sort((a, b) => b.timestamp - a.timestamp);
+                                .sort((a, b) => b.timestamp - a.timestamp); // 初期は降順でソート
 
                             const total = allRecords.reduce((sum, r) => sum + (r.amount || 0), 0);
 
@@ -113,7 +130,11 @@ const ColleagueDetailModal: React.FC<{
                             console.error('[ColleagueDetailModal] Subcollection error:', subError);
                             // サブコレクションの読み込みに失敗した場合は、activeRecordsのみを使用
                             const filteredRecords = activeRecords
-                                .filter((r: SalesRecord) => r && typeof r.timestamp === 'number' && r.timestamp > oneDayAgo)
+                                .filter((r: SalesRecord) => {
+                                    if (!r || typeof r.timestamp !== 'number') return false;
+                                    const recordBusinessDate = getBusinessDate(r.timestamp, businessStartHour);
+                                    return recordBusinessDate === todayBusinessDate;
+                                })
                                 .sort((a, b) => b.timestamp - a.timestamp);
                             const total = filteredRecords.reduce((sum, r) => sum + (r.amount || 0), 0);
                             if (!isCancelled) {
@@ -151,7 +172,7 @@ const ColleagueDetailModal: React.FC<{
                 unsubDoc();
             }
         };
-    }, [user.uid]);
+    }, [user.uid, user.businessStartHour]);
 
     return createPortal(
         <div className="fixed inset-0 z-[9999] flex flex-col justify-end bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
@@ -159,7 +180,7 @@ const ColleagueDetailModal: React.FC<{
             <div className="relative w-full max-w-md mx-auto bg-gray-800 rounded-t-[32px] p-6 text-white h-[85vh] flex flex-col shadow-2xl animate-in slide-in-from-bottom-10 duration-300 border-t-2 border-orange-500">
                 
                 {/* ヘッダー部分 */}
-                <div className="flex justify-between items-center mb-6 flex-shrink-0">
+                <div className="flex justify-between items-center mb-4 flex-shrink-0">
                     <div>
                         <h2 className="text-xl font-black flex items-center gap-2">
                             {user.name} <span className="text-xs font-normal text-gray-400 bg-gray-800 px-2 py-1 rounded-full">{date}</span>
@@ -170,39 +191,102 @@ const ColleagueDetailModal: React.FC<{
                     </button>
                 </div>
                 
-                {/* 概算データグリッド */}
-                <div className="grid grid-cols-2 gap-4 mb-6 flex-shrink-0">
-                    <div className="bg-gray-700 p-4 rounded-2xl border-2 border-orange-500 text-center">
-                        <p className="text-xs text-gray-500 font-bold uppercase tracking-widest mb-1">日計</p>
-                        <p className="text-2xl font-black text-amber-500">{formatCurrency(realtimeData.total)}</p>
-                    </div>
-                    <div className="bg-gray-700 p-4 rounded-2xl border-2 border-orange-500 text-center">
-                        <p className="text-xs text-gray-500 font-bold uppercase tracking-widest mb-1">回数</p>
-                        <p className="text-2xl font-black text-white">{realtimeData.records.length} <span className="text-sm text-gray-500">件</span></p>
-                    </div>
+                {/* スリム表示トグルと並び順変更 */}
+                <div className="flex justify-end gap-2 mb-4 flex-shrink-0">
+                    <button
+                        onClick={() => setSortOrder(prev => prev === 'desc' ? 'asc' : 'desc')}
+                        className={`px-4 py-2 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${
+                            sortOrder === 'desc'
+                                ? 'bg-blue-500 text-white hover:bg-blue-600' 
+                                : 'bg-blue-500 text-white hover:bg-blue-600'
+                        }`}
+                    >
+                        {sortOrder === 'desc' ? (
+                            <>
+                                <ArrowDown className="w-4 h-4" />
+                                降順
+                            </>
+                        ) : (
+                            <>
+                                <ArrowUp className="w-4 h-4" />
+                                昇順
+                            </>
+                        )}
+                    </button>
+                    <button
+                        onClick={() => setIsSlim(!isSlim)}
+                        className={`px-4 py-2 rounded-xl text-sm font-bold transition-all ${
+                            isSlim 
+                                ? 'bg-orange-500 text-gray-900' 
+                                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                        }`}
+                    >
+                        {isSlim ? '通常表示' : 'スリム表示'}
+                    </button>
                 </div>
 
                 {/* 詳細リスト表示エリア */}
-                <div className="flex-1 overflow-y-auto space-y-3 pb-safe pr-1 custom-scrollbar">
-                    {isLoading ? (
-                        <div className="text-center text-gray-500 py-10 font-bold">読み込み中...</div>
-                    ) : realtimeData.records.length === 0 ? (
-                        <div className="text-center text-gray-500 py-10 font-bold">記録がありません</div>
-                    ) : (
-                        realtimeData.records.map((r, idx) => (
-                            <div key={r.id || idx} className="opacity-100">
-                                <SalesRecordCard 
-                                    record={r}
-                                    index={realtimeData.records.length - idx}
-                                    isDetailed={true}
-                                    customLabels={{}} 
-                                    businessStartHour={user.businessStartHour || 9}
-                                    onClick={() => {}} 
-                                />
+                {(() => {
+                    // 並び順に応じてレコードをソート
+                    const sortedRecords = [...realtimeData.records].sort((a, b) => {
+                        return sortOrder === 'desc' 
+                            ? b.timestamp - a.timestamp  // 降順（新しい順）
+                            : a.timestamp - b.timestamp; // 昇順（古い順）
+                    });
+
+                    if (isSlim) {
+                        return (
+                            <div className="flex-1 overflow-y-auto pb-safe pr-1 custom-scrollbar">
+                                {isLoading ? (
+                                    <div className="text-center text-gray-500 py-10 font-bold">読み込み中...</div>
+                                ) : sortedRecords.length === 0 ? (
+                                    <div className="text-center text-gray-500 py-10 font-bold">記録がありません</div>
+                                ) : (
+                                    <table className="w-full border-collapse">
+                                        <tbody>
+                                            {sortedRecords.map((r, idx) => (
+                                                <SalesRecordCard 
+                                                    key={r.id || idx}
+                                                    record={r}
+                                                    index={sortOrder === 'desc' ? sortedRecords.length - idx : idx + 1}
+                                                    isDetailed={false}
+                                                    customLabels={{}} 
+                                                    businessStartHour={user.businessStartHour || 9}
+                                                    onClick={() => {}}
+                                                    isSlim={true}
+                                                />
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                )}
                             </div>
-                        ))
-                    )}
-                </div>
+                        );
+                    } else {
+                        return (
+                            <div className="flex-1 overflow-y-auto space-y-3 pb-safe pr-1 custom-scrollbar">
+                                {isLoading ? (
+                                    <div className="text-center text-gray-500 py-10 font-bold">読み込み中...</div>
+                                ) : sortedRecords.length === 0 ? (
+                                    <div className="text-center text-gray-500 py-10 font-bold">記録がありません</div>
+                                ) : (
+                                    sortedRecords.map((r, idx) => (
+                                        <div key={r.id || idx} className="opacity-100">
+                                            <SalesRecordCard 
+                                                record={r}
+                                                index={sortOrder === 'desc' ? sortedRecords.length - idx : idx + 1}
+                                                isDetailed={true}
+                                                customLabels={{}} 
+                                                businessStartHour={user.businessStartHour || 9}
+                                                onClick={() => {}} 
+                                                isSlim={false}
+                                            />
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        );
+                    }
+                })()}
             </div>
         </div>,
         document.body
@@ -348,6 +432,7 @@ export const ColleagueStatusList: React.FC<{ followingUsers: string[] }> = ({ fo
     return d.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
   };
 
+  // 現在の表示日付（各ユーザーのbusinessStartHourに基づいて判定するため、ここではSHARED_SWITCH_HOURを使用）
   const currentDisplayDate = getBusinessDate(Date.now(), SHARED_SWITCH_HOUR);
 
   const renderStatusBadge = (user: ColleagueData, hasDataToday: boolean) => {
@@ -469,8 +554,35 @@ export const ColleagueStatusList: React.FC<{ followingUsers: string[] }> = ({ fo
               <tbody className="text-sm text-gray-200">
                 {filteredColleagues.map((user, idx) => {
                   const isMe = user.uid === currentUserId;
-                  const userBusinessDate = user.startTime ? getBusinessDate(user.startTime, SHARED_SWITCH_HOUR) : '';
-                  const hasDataToday = userBusinessDate === currentDisplayDate || (user.sales > 0 && user.lastUpdated > Date.now() - 12 * 3600000);
+                  
+                  // 当日の最初の出庫時刻を取得（todayStartTimeがあればそれを使用、なければstartTimeを使用）
+                  const displayStartTime = user.todayStartTime || user.startTime;
+                  
+                  // 営業日の判定はtodayStartTimeを優先して使用（再出庫時でも最初の出庫時刻の営業日を使用）
+                  const timeForBusinessDate = user.todayStartTime || user.startTime;
+                  const userBusinessStartHour = user.businessStartHour || SHARED_SWITCH_HOUR;
+                  
+                  // 各ユーザーのbusinessStartHourを使用して営業日を判定
+                  const userBusinessDate = timeForBusinessDate ? getBusinessDate(timeForBusinessDate, userBusinessStartHour) : '';
+                  const currentUserBusinessDate = getBusinessDate(Date.now(), userBusinessStartHour);
+                  
+                  // 当日の営業日かどうかを判定（todayStartTimeがあればそれを使用）
+                  const isTodayBusinessDate = userBusinessDate === currentUserBusinessDate;
+                  
+                  // 当日の営業日であれば、データがある場合は表示（リセット時刻まで）
+                  // 営業終了時でも、当日の営業日であれば累計データを表示
+                  const hasDataToday = isTodayBusinessDate || (user.sales > 0 && user.lastUpdated > Date.now() - 12 * 3600000);
+                  
+                  // 当日の営業日であれば、sales、rideCount、dispatchCountのいずれかが存在する場合は表示
+                  // 営業終了時（status: 'completed'）でも、登録されているデータがあれば表示する
+                  // 0も有効な値として扱う（営業終了時でも0を表示）
+                  // status: 'completed'の場合は、当日の営業日であれば必ずデータを表示
+                  const hasData = isTodayBusinessDate && (
+                    user.status === 'completed' || // 営業終了時は必ず表示
+                    (user.sales !== undefined && user.sales !== null) || 
+                    (user.rideCount !== undefined && user.rideCount !== null) || 
+                    (user.dispatchCount !== undefined && user.dispatchCount !== null)
+                  );
 
                   const rowClass = isMe
                     ? 'bg-emerald-500/10 shadow-[inset_3px_0_0_#10b981] border-t border-b border-emerald-500/20' 
@@ -482,30 +594,44 @@ export const ColleagueStatusList: React.FC<{ followingUsers: string[] }> = ({ fo
                   const dataClass = 'text-sm font-black text-white';
                   const salesClass = 'text-sm font-black text-white';
 
+                  const handleNameClick = (e: React.MouseEvent) => {
+                    e.stopPropagation(); // 行全体のクリックイベントを防ぐ
+                    // Life360アプリを開く
+                    try {
+                      // Life360のURLスキームを使用
+                      window.location.href = 'life360://';
+                    } catch (error) {
+                      console.error('Life360アプリを開けませんでした:', error);
+                    }
+                  };
+
                   return (
                     <tr 
                         key={user.uid} 
                         className={`${rowClass} border-b border-gray-700/30 cursor-pointer hover:bg-white/5 active:bg-white/10 transition-colors`}
                         onClick={() => setSelectedColleague(user)}
                     >
-                      <td className={`py-2 px-1 text-left truncate max-w-[80px] border-r border-gray-700/30 ${nameClass}`}>
+                      <td 
+                        className={`py-2 px-1 text-left truncate max-w-[80px] border-r border-gray-700/30 ${nameClass}`}
+                        onClick={handleNameClick}
+                      >
                         {user.name}
                         {isAdmin && user.visibilityMode === 'PRIVATE' && !isMe && <span className="text-[9px] text-red-400 block leading-none font-black scale-75 origin-left">[非公開]</span>}
                       </td>
                       <td className={`py-2 px-1 tracking-tighter border-r border-gray-700/30 ${dataClass}`}>
-                        {hasDataToday ? formatBusinessTimeStr(user.startTime) : '－'}
+                        {hasDataToday ? formatBusinessTimeStr(displayStartTime) : '－'}
                       </td>
                       <td className="py-2 px-1 font-medium tracking-tighter border-r border-gray-700/30">
                         {renderStatusBadge(user, hasDataToday)}
                       </td>
                       <td className={`py-2 px-1 border-r border-gray-700/30 ${dataClass}`}>
-                        {hasDataToday ? user.rideCount : 0}
+                        {hasData ? (user.rideCount !== undefined && user.rideCount !== null ? user.rideCount : '-') : '-'}
                       </td>
                       <td className={`py-2 px-1 border-r border-gray-700/30 ${dataClass}`}>
-                        {hasDataToday ? (user.dispatchCount ?? '-') : 0}
+                        {hasData ? (user.dispatchCount !== undefined && user.dispatchCount !== null ? user.dispatchCount : '-') : '-'}
                       </td>
                       <td className={`py-2 px-2 text-right tracking-tight ${salesClass}`}>
-                        {(hasDataToday ? user.sales : 0).toLocaleString()}
+                        {(hasDataToday && user.sales !== undefined && user.sales !== null ? user.sales : 0).toLocaleString()}
                       </td>
                     </tr>
                   );

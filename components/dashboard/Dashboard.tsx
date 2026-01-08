@@ -26,7 +26,8 @@ import {
   ShieldCheck,
   Gauge
 } from 'lucide-react';
-import { auth } from '../../services/firebase';
+import { auth, db } from '../../services/firebase';
+import { doc, onSnapshot } from 'firebase/firestore';
 import { Shift, MonthlyStats, SalesRecord, BreakState, DayMetadata } from '../../types';
 import { 
   formatCurrency, 
@@ -132,9 +133,46 @@ const Dashboard: React.FC<DashboardProps> = ({
   // 出勤予定日カレンダー用ステート
   const [calendarViewDate, setCalendarViewDate] = useState(new Date());
   const [calendarDutyDays, setCalendarDutyDays] = useState<string[]>(stats.dutyDays || []);
+  // 当日の最初の出庫時刻
+  const [todayStartTime, setTodayStartTime] = useState<number | null>(null);
   
   const businessStartHour = stats.businessStartHour ?? 9;
   const shimebiDay = stats.shimebiDay ?? 20;
+  
+  // public_statusからtodayStartTimeを取得
+  useEffect(() => {
+    const currentUserId = auth.currentUser?.uid;
+    if (!currentUserId) {
+      setTodayStartTime(null);
+      return;
+    }
+    
+    const unsub = onSnapshot(doc(db, "public_status", currentUserId), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        const todayStart = data.todayStartTime;
+        if (todayStart) {
+          // todayStartTimeが当日の営業日か確認
+          const todayStartBusinessDate = getBusinessDate(todayStart, businessStartHour);
+          const currentBusinessDate = getBusinessDate(Date.now(), businessStartHour);
+          if (todayStartBusinessDate === currentBusinessDate) {
+            setTodayStartTime(todayStart);
+          } else {
+            setTodayStartTime(null);
+          }
+        } else {
+          setTodayStartTime(null);
+        }
+      } else {
+        setTodayStartTime(null);
+      }
+    }, (error) => {
+      console.error('[Dashboard] Error loading todayStartTime:', error);
+      setTodayStartTime(null);
+    });
+    
+    return () => unsub();
+  }, [businessStartHour]);
   
   // カレンダーの日付配列を生成（SettingsModalと同じロジック）
   const calendarDates = useMemo(() => {
@@ -218,6 +256,13 @@ const Dashboard: React.FC<DashboardProps> = ({
     const billingEndStr = formatDate(billingEnd);
     const todayBusinessDate = getBusinessDate(Date.now(), businessStartHour);
     
+    // カレンダーに表示されている日付の中で、カウントする日数を計算
+    // カウントする日：
+    // 1. 出勤した日（黄色状態）：過去日で売上データがある日
+    // 2. 選択した日（オレンジ状態）：未来日でcalendarDutyDaysに含まれている日
+    // カウントしない日：
+    // - 出勤していない日
+    // - 選択不可の日（過去日でcalendarDutyDaysに含まれているが売上データがない日）
     const selectedDaysSet = new Set<string>();
     
     calendarDates.forEach(d => {
@@ -231,7 +276,12 @@ const Dashboard: React.FC<DashboardProps> = ({
         const hasSales = hasSalesData[businessDateStr] || false;
         const isDuty = calendarDutyDays.includes(businessDateStr);
         
-        if (isDuty || (isPast && hasSales)) {
+        // 出勤した日（黄色状態）：過去日で売上データがある日
+        if (isPast && hasSales) {
+          selectedDaysSet.add(businessDateStr);
+        }
+        // 選択した日（オレンジ状態）：未来日でcalendarDutyDaysに含まれている日
+        else if (!isPast && isDuty) {
           selectedDaysSet.add(businessDateStr);
         }
       }
@@ -378,16 +428,20 @@ const Dashboard: React.FC<DashboardProps> = ({
 
   const elapsedMinutes = useMemo(() => {
     if (!shift) return 0;
-    return (now - shift.startTime) / 60000;
-  }, [shift, now]);
+    // 再出庫時はtodayStartTimeを使用、なければshift.startTimeを使用
+    const startTimeForCalculation = todayStartTime || shift.startTime;
+    return (now - startTimeForCalculation) / 60000;
+  }, [shift, now, todayStartTime]);
 
   const elapsedTimeStr = useMemo(() => {
     if (!shift) return "";
-    const diff = now - shift.startTime;
+    // 再出庫時はtodayStartTimeを使用、なければshift.startTimeを使用
+    const startTimeForCalculation = todayStartTime || shift.startTime;
+    const diff = now - startTimeForCalculation;
     const hours = Math.floor(diff / (1000 * 60 * 60));
     const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
     return `${hours}時間${String(minutes).padStart(2, '0')}分`;
-  }, [shift, now]);
+  }, [shift, now, todayStartTime]);
 
   const hourlySales = useMemo(() => {
     if (elapsedMinutes <= 0) return 0;
@@ -401,11 +455,13 @@ const Dashboard: React.FC<DashboardProps> = ({
 
   const referenceValue = useMemo(() => {
     if (!shift || !shift.plannedHours || shift.plannedHours === 0) return 0;
-    const currentElapsedHours = (now - shift.startTime) / (1000 * 60 * 60);
+    // 再出庫時はtodayStartTimeを使用、なければshift.startTimeを使用
+    const startTimeForCalculation = todayStartTime || shift.startTime;
+    const currentElapsedHours = (now - startTimeForCalculation) / (1000 * 60 * 60);
     const hourlyTarget = shift.dailyGoal / shift.plannedHours;
     const idealCurrentSales = hourlyTarget * currentElapsedHours;
     return dailyTotal - idealCurrentSales;
-  }, [shift, now, dailyTotal]);
+  }, [shift, now, dailyTotal, todayStartTime]);
 
   const dailyProgress = shift ? (dailyTotal / (shift.dailyGoal || 1)) * 100 : 0;
   const sortedRecords = useMemo(() => isHistoryReversed ? [...shiftRecords].reverse() : [...shiftRecords], [shiftRecords, isHistoryReversed]);
@@ -1235,6 +1291,19 @@ const Dashboard: React.FC<DashboardProps> = ({
             >
               <CalendarDays className="w-4 h-4" />
               平日のみ自動選択 (約20日)
+            </button>
+
+            {/* 保存ボタン */}
+            <button
+              onClick={() => {
+                if (onUpdateStats) {
+                  onUpdateStats({ dutyDays: calendarDutyDays });
+                }
+                setIsCalendarOpen(false);
+              }}
+              className="w-full mt-4 py-4 bg-orange-500 hover:bg-orange-600 rounded-xl text-base font-black text-white active:scale-95 transition-all shadow-lg"
+            >
+              保存
             </button>
           </div>
         </ModalWrapper>

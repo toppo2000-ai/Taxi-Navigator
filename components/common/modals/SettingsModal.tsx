@@ -20,7 +20,8 @@ import {
   Lock, 
   CalendarDays,
   FileText,
-  Info
+  Info,
+  Clock
 } from 'lucide-react';
 import { collection, getDocs, query, orderBy, doc, setDoc, onSnapshot } from 'firebase/firestore';
 import { MonthlyStats, PaymentMethod, SalesRecord, RideType, DEFAULT_PAYMENT_ORDER, ALL_RIDE_TYPES, VisibilityMode, InputMode } from '../../../types';
@@ -71,6 +72,7 @@ export const SettingsModal: React.FC<{
   const [allowedViewers, setAllowedViewers] = useState<string[]>(stats.allowedViewers || []);
   const [otherUsers, setOtherUsers] = useState<{uid: string, name: string, visibilityMode?: VisibilityMode, allowedViewers?: string[]}[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [showBusinessStartHourInfo, setShowBusinessStartHourInfo] = useState(false);
 
   const [followingUsers, setFollowingUsers] = useState<string[]>(stats.followingUsers || []);
 
@@ -231,7 +233,13 @@ export const SettingsModal: React.FC<{
     const billingEndStr = formatDate(billingEnd);
     const todayBusinessDate = getBusinessDate(Date.now(), businessStartHour);
     
-    // 営業期間内の日付を集計
+    // カレンダーに表示されている日付の中で、カウントする日数を計算
+    // カウントする日：
+    // 1. 出勤した日（黄色状態）：過去日で売上データがある日
+    // 2. 選択した日（オレンジ状態）：未来日でdutyDaysに含まれている日
+    // カウントしない日：
+    // - 出勤していない日
+    // - 選択不可の日（過去日でdutyDaysに含まれているが売上データがない日）
     const selectedDaysSet = new Set<string>();
     
     calendarDates.forEach(d => {
@@ -239,14 +247,17 @@ export const SettingsModal: React.FC<{
       dateWithHour.setHours(businessStartHour, 0, 0, 0);
       const businessDateStr = getBusinessDate(dateWithHour.getTime(), businessStartHour);
       const isInBillingPeriod = businessDateStr >= billingStartStr && businessDateStr <= billingEndStr;
+      const isPast = businessDateStr < todayBusinessDate;
+      const hasSales = hasSalesData[businessDateStr] || false;
+      const isDuty = dutyDays.includes(businessDateStr);
       
       if (isInBillingPeriod) {
-        const isPast = businessDateStr < todayBusinessDate;
-        const hasSales = hasSalesData[businessDateStr] || false;
-        const isDuty = dutyDays.includes(businessDateStr);
-        
-        // 選択されている日（dutyDaysに含まれている日）または過去の出勤日（売上データがある過去日）をカウント
-        if (isDuty || (isPast && hasSales)) {
+        // 出勤した日（黄色状態）：過去日で売上データがある日
+        if (isPast && hasSales) {
+          selectedDaysSet.add(businessDateStr);
+        }
+        // 選択した日（オレンジ状態）：未来日でdutyDaysに含まれている日
+        else if (!isPast && isDuty) {
           selectedDaysSet.add(businessDateStr);
         }
       }
@@ -263,9 +274,42 @@ export const SettingsModal: React.FC<{
       return; // 過去日は何もしない（選択日数を変動させない）
     }
     
-    setDutyDays(prev => 
-      prev.includes(dateStr) ? prev.filter(d => d !== dateStr) : [...prev, dateStr]
-    );
+    // 現在表示している月の営業期間を取得
+    const sDay = parseInt(shimebi);
+    const effectiveShimebi = isNaN(sDay) ? 20 : sDay;
+    const { start: billingStart, end: billingEnd } = getBillingPeriod(viewDate, effectiveShimebi, businessStartHour);
+    const startStr = formatDate(billingStart);
+    const endStr = formatDate(billingEnd);
+    
+    // 現在表示している月の営業期間内の日付かどうかを確認
+    const isInCurrentViewPeriod = dateStr >= startStr && dateStr <= endStr;
+    
+    if (!isInCurrentViewPeriod) {
+      // 現在表示している月の営業期間外の日付は操作しない
+      return;
+    }
+    
+    // 現在表示している月の営業期間内の日付のみを操作
+    // 他の月の日付は保持
+    setDutyDays(prev => {
+      // 現在表示している月の営業期間外の日付を保持
+      const otherMonthDays = prev.filter(d => {
+        return d < startStr || d > endStr;
+      });
+      
+      // 現在表示している月の営業期間内の日付を操作
+      const currentMonthDays = prev.filter(d => {
+        return d >= startStr && d <= endStr;
+      });
+      
+      if (currentMonthDays.includes(dateStr)) {
+        // 選択解除
+        return [...otherMonthDays, ...currentMonthDays.filter(d => d !== dateStr)];
+      } else {
+        // 選択追加
+        return [...otherMonthDays, ...currentMonthDays, dateStr];
+      }
+    });
   };
 
   const togglePaymentMethod = (m: PaymentMethod) => {
@@ -311,7 +355,10 @@ const toggleFollowingUser = (uid: string) => {
     const effectiveShimebi = isNaN(sDay) ? 20 : sDay;
     // viewDateは営業期間の終了日（締め日がある月）を表す（簡易モードと同じ）
     const { start, end } = getBillingPeriod(viewDate, effectiveShimebi, businessStartHour);
-    
+    const startStr = formatDate(start);
+    const endStr = formatDate(end);
+
+    // 現在表示している月の営業期間内の平日を取得
     const newDutyDays: string[] = [];
     let curr = new Date(start);
     while (curr <= end) {
@@ -324,7 +371,14 @@ const toggleFollowingUser = (uid: string) => {
       }
       curr.setDate(curr.getDate() + 1);
     }
-    setDutyDays(newDutyDays);
+    
+    // 現在表示している月の営業期間外の日付を保持
+    setDutyDays(prev => {
+      const otherMonthDays = prev.filter(d => {
+        return d < startStr || d > endStr;
+      });
+      return [...otherMonthDays, ...newDutyDays];
+    });
   };
 
   // 検索語でフィルタリング
@@ -575,7 +629,16 @@ const toggleFollowingUser = (uid: string) => {
                             </div>
                         </div>
                         <div className={`bg-gray-800 p-4 rounded-2xl border-2 ${inputMode === 'DETAILED' ? 'border-blue-500' : 'border-gray-700'} relative`}>
-                            <label className="text-lg font-bold text-gray-400 mb-2 block uppercase tracking-widest text-nowrap">切替時間</label>
+                            <div className="flex items-center gap-2 mb-2">
+                                <label className="text-lg font-bold text-gray-400 block uppercase tracking-widest text-nowrap">切替時間</label>
+                                <button
+                                    onClick={() => setShowBusinessStartHourInfo(true)}
+                                    className="p-1 text-gray-400 hover:text-blue-500 transition-colors"
+                                    type="button"
+                                >
+                                    <Info className="w-4 h-4" />
+                                </button>
+                            </div>
                             <div className="flex items-center gap-2">
                                 <select 
                                     value={businessStartHour} 
@@ -1032,6 +1095,43 @@ const toggleFollowingUser = (uid: string) => {
            </button>
         </div>
       </div>
+
+      {/* 日付切替時刻説明モーダル */}
+      {showBusinessStartHourInfo && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm">
+          <div className="bg-[#131C2B] p-6 rounded-3xl space-y-6 max-w-md w-full mx-4">
+            <div className="flex justify-between items-center">
+              <h3 className="text-xl font-black text-white flex items-center gap-2">
+                <Clock className="w-6 h-6 text-blue-500" /> 日付切替時刻について
+              </h3>
+              <button 
+                onClick={() => setShowBusinessStartHourInfo(false)}
+                className="p-2 bg-gray-800 rounded-full text-gray-400 hover:text-white active:scale-95"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="space-y-4">
+              <div className="bg-gray-900/50 p-4 rounded-xl border border-gray-700">
+                <p className="text-base text-gray-300 leading-relaxed">
+                  この時刻から翌日の同じ時刻の1分前までが、当日分の売上として集計されます。
+                </p>
+                <p className="text-sm text-gray-400 mt-3 leading-relaxed">
+                  例：9時に設定した場合、1月1日の9時00分から1月2日の8時59分までが1月1日分の売上として集計されます。
+                </p>
+              </div>
+            </div>
+            
+            <button
+              onClick={() => setShowBusinessStartHourInfo(false)}
+              className="w-full bg-blue-500 rounded-xl py-4 font-black text-white text-lg hover:bg-blue-600 active:scale-95 transition-all"
+            >
+              閉じる
+            </button>
+          </div>
+        </div>
+      )}
     </ModalWrapper>
   );
 };

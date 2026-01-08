@@ -17,6 +17,7 @@ interface SalesRecordCardProps {
   customLabels: Record<string, string>;
   businessStartHour: number;
   onClick: () => void;
+  isSlim?: boolean;
 }
 
 export const SalesRecordCard: React.FC<SalesRecordCardProps> = ({ 
@@ -31,7 +32,7 @@ export const SalesRecordCard: React.FC<SalesRecordCardProps> = ({
   const safeCustomLabels = customLabels || {};
   const paymentName = safeCustomLabels[record.paymentMethod] || PAYMENT_LABELS[record.paymentMethod];
   const totalAmount = record.amount + record.toll;
-  const passengerStr = `[${record.passengersMale || 0}${record.passengersFemale || 0}]`;
+  const passengerStr = `男${record.passengersMale || 0}:女${record.passengersFemale || 0}`;
 
   // スリムモードの表示
   if (isSlim) {

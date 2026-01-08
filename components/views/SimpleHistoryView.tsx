@@ -25,6 +25,8 @@ interface DailyRecord {
 export const SimpleHistoryView: React.FC<SimpleHistoryViewProps> = ({ stats, onEditRecord }) => {
   const [history, setHistory] = useState<SalesRecord[]>([]);
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc'); // 降順（新しい順）がデフォルト
+  const [isMonthPickerOpen, setIsMonthPickerOpen] = useState(false);
+  const [selectedYear, setSelectedYear] = useState<number | null>(null); // プルダウン内で選択中の年
   const shimebiDay = parseInt(stats.shimebiDay?.toString() || '20');
   const businessStartHour = stats.businessStartHour ?? 9;
   // 営業期間の終了日（締め日がある月）を初期値とする
@@ -218,6 +220,28 @@ export const SimpleHistoryView: React.FC<SimpleHistoryViewProps> = ({ stats, onE
     return result;
   }, [history, currentMonth, shimebiDay, businessStartHour, sortOrder]);
 
+  // 稼働時間を計算する関数（分単位）
+  const calculateWorkMinutes = React.useCallback((startTime?: string, endTime?: string): number => {
+    if (!startTime || !endTime) return 0;
+    const [startHour, startMin] = startTime.split(':').map(Number);
+    const [endHour, endMin] = endTime.split(':').map(Number);
+    const startMinutes = startHour * 60 + startMin;
+    const endMinutes = endHour * 60 + endMin;
+    let workMinutes = endMinutes - startMinutes;
+    // 日をまたぐ場合の処理
+    if (workMinutes < 0) {
+      workMinutes += 24 * 60;
+    }
+    return workMinutes;
+  }, []);
+
+  // 稼働時間をフォーマットする関数（時間と分）
+  const formatWorkTime = React.useCallback((minutes: number): string => {
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    return `${hours}時間${String(mins).padStart(2, '0')}分`;
+  }, []);
+
   // 月間統計を計算
   const monthlyStats = useMemo(() => {
     const totalSales = dailyRecords.reduce((sum, r) => sum + r.sales, 0);
@@ -230,12 +254,18 @@ export const SimpleHistoryView: React.FC<SimpleHistoryViewProps> = ({ stats, onE
     const workDaysWithTime = recordsWithTime.length;
     const averageHourlySales = workDaysWithTime > 0 ? Math.round(totalHourlySales / workDaysWithTime) : 0;
     
+    // 稼働時間合計を計算（分単位）
+    const totalWorkMinutes = dailyRecords.reduce((sum, r) => {
+      return sum + calculateWorkMinutes(r.startTime, r.endTime);
+    }, 0);
+    
     return {
       totalSales,
       averageSales: dayCount > 0 ? Math.round(totalSales / dayCount) : 0,
       totalRides,
       averageRides: dayCount > 0 ? Math.round(totalRides / dayCount) : 0,
-      averageHourlySales
+      averageHourlySales,
+      totalWorkMinutes
     };
   }, [dailyRecords]);
 
@@ -282,6 +312,68 @@ export const SimpleHistoryView: React.FC<SimpleHistoryViewProps> = ({ stats, onE
     return `${adjustedEnd.getFullYear()}年${adjustedEnd.getMonth() + 1}月`;
   }, [currentMonth, shimebiDay, businessStartHour]);
 
+  // 現在の年月を取得
+  const currentYear = useMemo(() => {
+    const targetReferenceDate = new Date(
+      currentMonth.getFullYear(), 
+      currentMonth.getMonth(), 
+      shimebiDay === 0 ? 28 : shimebiDay
+    );
+    const { end } = getBillingPeriod(targetReferenceDate, shimebiDay, businessStartHour);
+    const adjustedEnd = new Date(end);
+    if (shimebiDay !== 0) adjustedEnd.setDate(shimebiDay);
+    return adjustedEnd.getFullYear();
+  }, [currentMonth, shimebiDay, businessStartHour]);
+
+  const currentMonthNum = useMemo(() => {
+    const targetReferenceDate = new Date(
+      currentMonth.getFullYear(), 
+      currentMonth.getMonth(), 
+      shimebiDay === 0 ? 28 : shimebiDay
+    );
+    const { end } = getBillingPeriod(targetReferenceDate, shimebiDay, businessStartHour);
+    const adjustedEnd = new Date(end);
+    if (shimebiDay !== 0) adjustedEnd.setDate(shimebiDay);
+    return adjustedEnd.getMonth() + 1;
+  }, [currentMonth, shimebiDay, businessStartHour]);
+
+  // 年選択ハンドラ（プルダウンは閉じない）
+  const handleYearSelect = (year: number) => {
+    setSelectedYear(year);
+  };
+
+  // 月選択ハンドラ（プルダウンを閉じて移動）
+  const handleMonthSelect = (month: number) => {
+    const targetYear = selectedYear !== null ? selectedYear : currentYear;
+    const targetDate = new Date(targetYear, month - 1, shimebiDay === 0 ? 28 : shimebiDay);
+    const { end } = getBillingPeriod(targetDate, shimebiDay, businessStartHour);
+    setCurrentMonth(end);
+    setIsMonthPickerOpen(false);
+    setSelectedYear(null); // リセット
+  };
+
+  // 年リストを生成（現在年から5年前まで）
+  const years = useMemo(() => {
+    const currentYearNum = new Date().getFullYear();
+    const yearsList: number[] = [];
+    for (let i = 0; i <= 5; i++) {
+      yearsList.push(currentYearNum - i);
+    }
+    return yearsList;
+  }, []);
+
+  // プルダウンを開くときに選択中の年をリセット
+  const handleOpenPicker = () => {
+    setSelectedYear(null);
+    setIsMonthPickerOpen(true);
+  };
+
+  // 表示用の年（選択中の年があればそれ、なければ現在の年）
+  const displayYear = selectedYear !== null ? selectedYear : currentYear;
+
+  // 月リスト
+  const months = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+
   return (
     <div className="w-full bg-[#0A0E14] min-h-screen pb-32">
       {/* ヘッダー */}
@@ -293,26 +385,87 @@ export const SimpleHistoryView: React.FC<SimpleHistoryViewProps> = ({ stats, onE
 
       <div className="p-4 space-y-4">
         {/* 月選択 */}
-        <div className="flex items-center justify-center">
+        <div className="flex items-center justify-center relative">
           <button
             onClick={() => changeMonth('prev')}
             className="p-2 text-gray-400 hover:text-white"
           >
             <ChevronLeft className="w-5 h-5" />
           </button>
-          <div className="mx-4 px-4 py-2 border-2 border-orange-500 rounded-lg bg-white flex items-center gap-2">
+          <button
+            onClick={handleOpenPicker}
+            className="mx-4 px-4 py-2 border-2 border-orange-500 rounded-lg bg-white flex items-center gap-2 hover:bg-gray-50 transition-colors"
+          >
             <span className="text-base font-black text-gray-900">{monthDisplay}</span>
             <div className="flex flex-col">
               <ChevronUp className="w-3 h-3 text-gray-600" />
               <ChevronDown className="w-3 h-3 text-gray-600" />
             </div>
-          </div>
+          </button>
           <button
             onClick={() => changeMonth('next')}
             className="p-2 text-gray-400 hover:text-white"
           >
             <ChevronRight className="w-5 h-5" />
           </button>
+
+          {/* 年月選択プルダウン */}
+          {isMonthPickerOpen && (
+            <>
+              {/* オーバーレイ */}
+              <div
+                className="fixed inset-0 bg-black/50 z-40"
+                onClick={() => {
+                  setIsMonthPickerOpen(false);
+                  setSelectedYear(null);
+                }}
+              />
+              {/* プルダウンメニュー */}
+              <div className="absolute top-full mt-2 left-1/2 transform -translate-x-1/2 z-50 bg-gray-800 rounded-xl border-2 border-orange-500 shadow-2xl p-4 min-w-[280px] max-h-[400px] overflow-y-auto">
+                <div className="text-sm font-bold text-orange-400 mb-3 text-center">年月を選択</div>
+                <div className="space-y-4">
+                  {/* 年選択 */}
+                  <div>
+                    <div className="text-xs text-gray-400 font-bold mb-2">年</div>
+                    <div className="grid grid-cols-3 gap-2">
+                      {years.map(year => (
+                        <button
+                          key={year}
+                          onClick={() => handleYearSelect(year)}
+                          className={`px-3 py-2 rounded-lg text-sm font-black transition-colors ${
+                            year === displayYear
+                              ? 'bg-orange-500 text-white'
+                              : 'bg-gray-700 text-white hover:bg-gray-600'
+                          }`}
+                        >
+                          {year}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {/* 月選択 */}
+                  <div>
+                    <div className="text-xs text-gray-400 font-bold mb-2">月</div>
+                    <div className="grid grid-cols-3 gap-2">
+                      {months.map(month => (
+                        <button
+                          key={month}
+                          onClick={() => handleMonthSelect(month)}
+                          className={`px-3 py-2 rounded-lg text-sm font-black transition-colors ${
+                            month === currentMonthNum && displayYear === currentYear
+                              ? 'bg-orange-500 text-white'
+                              : 'bg-gray-700 text-white hover:bg-gray-600'
+                          }`}
+                        >
+                          {month}月
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         {/* 月間サマリー */}
@@ -339,12 +492,20 @@ export const SimpleHistoryView: React.FC<SimpleHistoryViewProps> = ({ stats, onE
               <div className="text-xl font-black text-white">{monthlyStats.averageRides}回</div>
             </div>
           </div>
-          {monthlyStats.averageHourlySales > 0 && (
-            <div className="mt-3">
-              <div className="bg-gray-800 rounded-xl p-3 border-2 border-orange-500/50">
-                <div className="text-xs text-orange-400 font-bold mb-1">時間あたりの平均売上</div>
-                <div className="text-xl font-black text-white">¥{monthlyStats.averageHourlySales.toLocaleString()}</div>
-              </div>
+          {(monthlyStats.averageHourlySales > 0 || monthlyStats.totalWorkMinutes > 0) && (
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              {monthlyStats.averageHourlySales > 0 && (
+                <div className="bg-gray-800 rounded-xl p-3 border-2 border-orange-500/50">
+                  <div className="text-xs text-orange-400 font-bold mb-1">時間あたりの平均売上</div>
+                  <div className="text-xl font-black text-white">¥{monthlyStats.averageHourlySales.toLocaleString()}</div>
+                </div>
+              )}
+              {monthlyStats.totalWorkMinutes > 0 && (
+                <div className="bg-gray-800 rounded-xl p-3 border-2 border-orange-500/50">
+                  <div className="text-xs text-orange-400 font-bold mb-1">稼働時間合計</div>
+                  <div className="text-xl font-black text-white">{formatWorkTime(monthlyStats.totalWorkMinutes)}</div>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -418,6 +579,30 @@ export const SimpleHistoryView: React.FC<SimpleHistoryViewProps> = ({ stats, onE
                         <span className="text-lg font-black text-green-400 whitespace-nowrap">
                           {record.hourlySales.toLocaleString()}円
                         </span>
+                      </div>
+                    )}
+                    {record.startTime && record.endTime && (
+                      <div className="flex flex-col gap-1 pt-2 border-t border-gray-700">
+                        <div className="flex items-center gap-4 flex-wrap">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm text-orange-400 font-bold whitespace-nowrap">出勤時間</span>
+                            <span className="text-base font-black text-white whitespace-nowrap">
+                              {record.startTime}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm text-orange-400 font-bold whitespace-nowrap">退勤時間</span>
+                            <span className="text-base font-black text-white whitespace-nowrap">
+                              {record.endTime}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm text-orange-400 font-bold whitespace-nowrap">稼働時間</span>
+                          <span className="text-base font-black text-blue-400 whitespace-nowrap">
+                            {formatWorkTime(calculateWorkMinutes(record.startTime, record.endTime))}
+                          </span>
+                        </div>
                       </div>
                     )}
                   </div>

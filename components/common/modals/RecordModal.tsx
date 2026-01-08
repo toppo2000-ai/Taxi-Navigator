@@ -19,7 +19,8 @@ import {
   Clock,
   FileText,
   Target,
-  Power
+  Power,
+  CreditCard
 } from 'lucide-react';
 import { SalesRecord, PaymentMethod, RideType, ALL_RIDE_TYPES, Shift, MonthlyStats } from '../../../types';
 import { 
@@ -40,6 +41,8 @@ import { findHotel } from '../../../hotels';
 import { ModalWrapper } from './ModalWrapper';
 import { KeypadView } from './KeypadView';
 import { ColleagueStatusList } from '../ColleagueStatusList';
+import { db, auth } from '../../../services/firebase';
+import { doc, onSnapshot } from 'firebase/firestore';
 
 export const RecordModal: React.FC<{ 
   initialData?: Partial<SalesRecord>;
@@ -99,14 +102,35 @@ export const RecordModal: React.FC<{
   const [passengersFemale, setPassengersFemale] = useState(initialData?.passengersFemale ?? 0);
   const [remarks, setRemarks] = useState(initialData?.remarks || "");
   const [isBadCustomer, setIsBadCustomer] = useState(initialData?.isBadCustomer || false);
+  
+  // 備考欄から選択された決済アプリを取得（初期値）
+  useEffect(() => {
+    if (initialData?.remarks) {
+      const remarks = initialData.remarks;
+      if (remarks.includes('GO決済')) {
+        setSelectedPaymentApp('GO決済');
+      } else if (remarks.includes('Didi決済')) {
+        setSelectedPaymentApp('Didi決済');
+      } else if (remarks.includes('Uber決済')) {
+        setSelectedPaymentApp('Uber決済');
+      } else if (remarks.includes('QR決済')) {
+        setSelectedPaymentApp('QRコード');
+      }
+    }
+  }, [initialData?.remarks]);
 
   const [isLocating, setIsLocating] = useState<'pickup' | 'dropoff' | 'stopover' | null>(null);
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
   const [isConfirmingCancel, setIsConfirmingCancel] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [showAppTypeModal, setShowAppTypeModal] = useState(false);
+  const [showPaymentAppTypeModal, setShowPaymentAppTypeModal] = useState(false);
+  const [selectedPaymentApp, setSelectedPaymentApp] = useState<string>('');
   
   // リアルタイム更新用の現在時刻
   const [currentTime, setCurrentTime] = useState(Date.now());
+  // 当日の最初の出庫時刻
+  const [todayStartTime, setTodayStartTime] = useState<number | null>(null);
 
   // 乗り場選択用State
   const [standSelection, setStandSelection] = useState<TaxiStandDef | null>(null);
@@ -121,6 +145,41 @@ export const RecordModal: React.FC<{
     
     return () => clearInterval(interval);
   }, []);
+  
+  // public_statusからtodayStartTimeを取得
+  useEffect(() => {
+    const currentUserId = auth.currentUser?.uid;
+    if (!currentUserId) {
+      setTodayStartTime(null);
+      return;
+    }
+    
+    const unsub = onSnapshot(doc(db, "public_status", currentUserId), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        const todayStart = data.todayStartTime;
+        if (todayStart) {
+          // todayStartTimeが当日の営業日か確認
+          const todayStartBusinessDate = getBusinessDate(todayStart, businessStartHour);
+          const currentBusinessDate = getBusinessDate(Date.now(), businessStartHour);
+          if (todayStartBusinessDate === currentBusinessDate) {
+            setTodayStartTime(todayStart);
+          } else {
+            setTodayStartTime(null);
+          }
+        } else {
+          setTodayStartTime(null);
+        }
+      } else {
+        setTodayStartTime(null);
+      }
+    }, (error) => {
+      console.error('[RecordModal] Error loading todayStartTime:', error);
+      setTodayStartTime(null);
+    });
+    
+    return () => unsub();
+  }, [businessStartHour]);
 
   // 現在選択されている決済方法名に「アプリ」が含まれているか判定
   const isAppPayment = useMemo(() => {
@@ -128,10 +187,69 @@ export const RecordModal: React.FC<{
     return label ? label.includes('アプリ') : false;
   }, [method, customLabels]);
 
-  // アプリ会社選択時のハンドラー（備考欄にセット）
-  const handleAppTypeSelect = (appName: string) => {
-    setRemarks(appName);
+  // 備考欄から選択された決済アプリを更新
+  useEffect(() => {
+    if (remarks) {
+      if (remarks.includes('GO決済')) {
+        setSelectedPaymentApp('GO決済');
+      } else if (remarks.includes('Didi決済')) {
+        setSelectedPaymentApp('Didi決済');
+      } else if (remarks.includes('Uber決済')) {
+        setSelectedPaymentApp('Uber決済');
+      } else if (remarks.includes('QR決済')) {
+        setSelectedPaymentApp('QRコード');
+      } else if (!remarks.match(/(GO|Didi|Uber|QR)決済/)) {
+        // 決済アプリの文字列が含まれていない場合、リセット
+        if (method !== 'QR') {
+          setSelectedPaymentApp('');
+        }
+      }
+    } else {
+      if (method !== 'QR') {
+        setSelectedPaymentApp('');
+      }
+    }
+  }, [remarks, method]);
+
+  // 乗車区分のアプリ選択時のハンドラー（備考欄に「GO配車」などとセット）
+  const handleRideAppTypeSelect = (appName: string) => {
+    // 既存のアプリ配車の文字列を削除（GO配車、Didi配車、Uber配車、S.RIDE配車、s.ride配車）
+    const displayName = appName === 's.ride' ? 'S.RIDE' : appName;
+    const appText = `${displayName}配車 `;
+    setRemarks(prev => {
+      if (!prev) return appText;
+      // 既存のアプリ配車の文字列を削除（大文字・小文字両方に対応）
+      let cleaned = prev
+        .replace(/GO配車\s*/g, '')
+        .replace(/Didi配車\s*/g, '')
+        .replace(/Uber配車\s*/g, '')
+        .replace(/S\.RIDE配車\s*/g, '')
+        .replace(/s\.ride配車\s*/g, '');
+      // 新しいアプリ配車の文字列を追加
+      return cleaned ? `${cleaned}${appText}` : appText;
+    });
+    setShowAppTypeModal(false);
   };
+
+  // 支払い種別のアプリ選択時のハンドラー（備考欄に「GO決済」などとセット）
+  const handlePaymentAppTypeSelect = (appName: string) => {
+    // 既存の決済アプリの文字列を削除（GO決済、Didi決済、Uber決済、QR決済）
+    const appText = `${appName}決済 `;
+    setRemarks(prev => {
+      if (!prev) return appText;
+      // 既存の決済アプリの文字列を削除
+      let cleaned = prev
+        .replace(/GO決済\s*/g, '')
+        .replace(/Didi決済\s*/g, '')
+        .replace(/Uber決済\s*/g, '')
+        .replace(/QR決済\s*/g, '');
+      // 新しい決済アプリの文字列を追加
+      return cleaned ? `${cleaned}${appText}` : appText;
+    });
+    setSelectedPaymentApp(appName === 'QR' ? 'QRコード' : `${appName}決済`);
+    setShowPaymentAppTypeModal(false);
+  };
+
 
   const rideTypeRef = useRef<HTMLDivElement>(null);
   const amountSectionRef = useRef<HTMLDivElement>(null);
@@ -597,12 +715,28 @@ export const RecordModal: React.FC<{
                 </div>
 
                 <div ref={rideTypeRef} className="scroll-mt-4">
-                  <label className="text-xl font-black text-gray-500 uppercase mb-3 block tracking-widest">3. 乗車区分</label>
+                  <label className="text-xl font-black text-gray-500 uppercase mb-3 block tracking-widest flex items-center justify-between">
+                    <span>3. 乗車区分</span>
+                    {rideType === 'APP' && (() => {
+                      // 備考欄からアプリ名を抽出
+                      if (remarks.includes('GO配車')) return <span className="text-xl font-black text-gray-400">GO配車</span>;
+                      if (remarks.includes('Didi配車')) return <span className="text-xl font-black text-gray-400">Didi配車</span>;
+                      if (remarks.includes('Uber配車')) return <span className="text-xl font-black text-gray-400">Uber配車</span>;
+                      if (remarks.includes('S.RIDE配車') || remarks.includes('s.ride配車')) return <span className="text-xl font-black text-gray-400">S.RIDE配車</span>;
+                      return null;
+                    })()}
+                  </label>
                   <div className="grid grid-cols-3 gap-3">
                     {safeEnabledRideTypes.map(r => (
                       <button
                         key={r}
-                        onClick={() => setRideType(r)}
+                        onClick={() => {
+                          setRideType(r);
+                          // アプリを選択した場合、ポップアップを表示（新規入力時のみ）
+                          if (r === 'APP' && !initialData?.id) {
+                            setShowAppTypeModal(true);
+                          }
+                        }}
                         className={`py-4 rounded-2xl font-black border-2 transition-all shadow-sm whitespace-nowrap ${
                           r === 'HIRE' 
                             ? 'text-2xl' // ハイヤーだけ文字サイズを小さく
@@ -693,9 +827,28 @@ export const RecordModal: React.FC<{
                 </div>
 
                 <div>
-                  <label className="text-xl font-black text-gray-400 uppercase mb-3 block tracking-widest">6. 決済方法</label>
+                  <label className="text-xl font-black text-gray-400 uppercase mb-3 block tracking-widest flex items-center justify-between">
+                    <span>6. 決済方法</span>
+                    {selectedPaymentApp && (
+                      <span className="text-xl font-black text-gray-400">{selectedPaymentApp}</span>
+                    )}
+                  </label>
                   <div className="relative">
-                    <select value={method} onChange={(e) => setMethod(e.target.value as PaymentMethod)} className="w-full bg-gray-800 border-2 border-blue-500 rounded-2xl p-4 text-white text-xl font-black outline-none appearance-none focus:border-blue-400 cursor-pointer shadow-inner">
+                    <select 
+                      value={method} 
+                      onChange={(e) => {
+                        const newMethod = e.target.value as PaymentMethod;
+                        setMethod(newMethod);
+                        // アプリ/QRを選択した場合、ポップアップを表示
+                        if (newMethod === 'QR') {
+                          setShowPaymentAppTypeModal(true);
+                        } else {
+                          // 他の決済方法を選択した場合、選択した決済アプリをリセット
+                          setSelectedPaymentApp('');
+                        }
+                      }} 
+                      className="w-full bg-gray-800 border-2 border-blue-500 rounded-2xl p-4 text-white text-xl font-black outline-none appearance-none focus:border-blue-400 cursor-pointer shadow-inner"
+                    >
                       {enabledMethods.map(m => (
                         <option key={m} value={m}>{customLabels[m] || PAYMENT_LABELS[m]}</option>
                       ))}
@@ -713,9 +866,9 @@ export const RecordModal: React.FC<{
                     <div className="flex gap-2">
                       <button
                         type="button"
-                        onClick={() => handleAppTypeSelect('GO決済')}
+                        onClick={() => handlePaymentAppTypeSelect('GO')}
                         className={`flex-1 py-4 rounded-xl font-black text-3xl border transition-all active:scale-95 ${
-                          remarks === 'GO決済' 
+                          remarks.includes('GO決済') 
                             ? 'bg-amber-500 text-black border-amber-500'
                             : 'bg-gray-800 text-gray-300 border-gray-600 hover:bg-gray-700'
                         }`}
@@ -724,9 +877,9 @@ export const RecordModal: React.FC<{
                       </button>
                       <button
                         type="button"
-                        onClick={() => handleAppTypeSelect('DiDi決済')}
+                        onClick={() => handlePaymentAppTypeSelect('DiDi')}
                         className={`flex-1 py-4 rounded-xl font-black text-3xl border transition-all active:scale-95 ${
-                          remarks === 'DiDi決済'
+                          remarks.includes('DiDi決済')
                             ? 'bg-amber-500 text-black border-amber-500'
                             : 'bg-gray-800 text-gray-300 border-gray-600 hover:bg-gray-700'
                         }`}
@@ -735,9 +888,9 @@ export const RecordModal: React.FC<{
                       </button>
                       <button
                         type="button"
-                        onClick={() => handleAppTypeSelect('Uber決済')}
+                        onClick={() => handlePaymentAppTypeSelect('Uber')}
                         className={`flex-1 py-4 rounded-xl font-black text-3xl border transition-all active:scale-95 ${
-                          remarks === 'Uber決済'
+                          remarks.includes('Uber決済')
                             ? 'bg-amber-500 text-black border-amber-500'
                             : 'bg-gray-800 text-gray-300 border-gray-600 hover:bg-gray-700'
                         }`}
@@ -840,7 +993,9 @@ export const RecordModal: React.FC<{
                         <span className="text-white font-black text-sm">
                           営業中 {(() => {
                             const now = Date.now();
-                            const diff = now - shift.startTime;
+                            // 再出庫時はtodayStartTimeを使用、なければshift.startTimeを使用
+                            const startTimeForCalculation = todayStartTime || shift.startTime;
+                            const diff = now - startTimeForCalculation;
                             const hours = Math.floor(diff / (1000 * 60 * 60));
                             const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
                             return `${hours}時間${String(minutes).padStart(2, '0')}分`;
@@ -893,7 +1048,9 @@ export const RecordModal: React.FC<{
                             const now = currentTime;
                             const total = (shift.records || []).reduce((sum: number, r: SalesRecord) => sum + (r.amount || 0), 0);
                             if (!shift.plannedHours || shift.plannedHours === 0) return '0';
-                            const currentElapsedHours = (now - shift.startTime) / (1000 * 60 * 60);
+                            // 再出庫時はtodayStartTimeを使用、なければshift.startTimeを使用
+                            const startTimeForCalculation = todayStartTime || shift.startTime;
+                            const currentElapsedHours = (now - startTimeForCalculation) / (1000 * 60 * 60);
                             const hourlyTarget = (shift.dailyGoal || 0) / shift.plannedHours;
                             const idealCurrentSales = hourlyTarget * currentElapsedHours;
                             const diff = total - idealCurrentSales;
@@ -942,7 +1099,9 @@ export const RecordModal: React.FC<{
                           {(() => {
                             const now = currentTime;
                             const total = (shift.records || []).reduce((sum: number, r: SalesRecord) => sum + (r.amount || 0), 0);
-                            const elapsedMinutes = (now - shift.startTime) / 60000;
+                            // 再出庫時はtodayStartTimeを使用、なければshift.startTimeを使用
+                            const startTimeForCalculation = todayStartTime || shift.startTime;
+                            const elapsedMinutes = (now - startTimeForCalculation) / 60000;
                             if (elapsedMinutes <= 0) return '0';
                             return Math.floor((total / elapsedMinutes) * 60).toLocaleString();
                           })()}
@@ -1009,6 +1168,98 @@ export const RecordModal: React.FC<{
             </div>
           )}
       </div>
+
+      {/* アプリ選択ポップアップ（乗車区分用） */}
+      {showAppTypeModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm p-4">
+          <div className="bg-gray-900 rounded-3xl p-6 max-w-md w-full border-2 border-blue-500 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-2xl font-black text-white flex items-center gap-2">
+                <Car className="w-6 h-6 text-blue-400" />
+                どのアプリですか？
+              </h3>
+              <button
+                onClick={() => setShowAppTypeModal(false)}
+                className="text-gray-400 hover:text-white transition-colors"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <button
+                onClick={() => handleRideAppTypeSelect('GO')}
+                className="bg-blue-600 hover:bg-blue-700 text-white py-6 rounded-2xl font-black text-2xl border-2 border-blue-500 transition-all active:scale-95 shadow-lg"
+              >
+                GO
+              </button>
+              <button
+                onClick={() => handleRideAppTypeSelect('Didi')}
+                className="bg-orange-600 hover:bg-orange-700 text-white py-6 rounded-2xl font-black text-2xl border-2 border-orange-500 transition-all active:scale-95 shadow-lg"
+              >
+                Didi
+              </button>
+              <button
+                onClick={() => handleRideAppTypeSelect('Uber')}
+                className="bg-black hover:bg-gray-900 text-white py-6 rounded-2xl font-black text-2xl border-2 border-gray-700 transition-all active:scale-95 shadow-lg"
+              >
+                Uber
+              </button>
+              <button
+                onClick={() => handleRideAppTypeSelect('s.ride')}
+                className="bg-green-500 hover:bg-green-600 text-white py-6 rounded-2xl font-black text-xl border-2 border-green-400 transition-all active:scale-95 shadow-lg"
+              >
+                S.RIDE
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 決済アプリ選択ポップアップ */}
+      {showPaymentAppTypeModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm p-4">
+          <div className="bg-gray-900 rounded-3xl p-6 max-w-md w-full border-2 border-blue-500 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-2xl font-black text-white flex items-center gap-2">
+                <CreditCard className="w-6 h-6 text-blue-400" />
+                決済アプリを選択
+              </h3>
+              <button
+                onClick={() => setShowPaymentAppTypeModal(false)}
+                className="text-gray-400 hover:text-white transition-colors"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <button
+                onClick={() => handlePaymentAppTypeSelect('GO')}
+                className="bg-blue-600 hover:bg-blue-700 text-white py-6 rounded-2xl font-black text-2xl border-2 border-blue-500 transition-all active:scale-95 shadow-lg"
+              >
+                GO
+              </button>
+              <button
+                onClick={() => handlePaymentAppTypeSelect('Didi')}
+                className="bg-orange-600 hover:bg-orange-700 text-white py-6 rounded-2xl font-black text-2xl border-2 border-orange-500 transition-all active:scale-95 shadow-lg"
+              >
+                Didi
+              </button>
+              <button
+                onClick={() => handlePaymentAppTypeSelect('Uber')}
+                className="bg-black hover:bg-gray-900 text-white py-6 rounded-2xl font-black text-2xl border-2 border-gray-700 transition-all active:scale-95 shadow-lg"
+              >
+                Uber
+              </button>
+              <button
+                onClick={() => handlePaymentAppTypeSelect('QR')}
+                className="bg-purple-600 hover:bg-purple-700 text-white py-6 rounded-2xl font-black text-xl border-2 border-purple-500 transition-all active:scale-95 shadow-lg"
+              >
+                QRコード
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </ModalWrapper>
   );
 };

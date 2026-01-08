@@ -513,32 +513,72 @@ export default function App() {
         });
       } else {
         // オフライン時も営収を計算（当日の売上）
-        const todayBusinessDate = getBusinessDate(Date.now(), startHour);
-        const todaySales = currentHistory
-          .filter(r => getBusinessDate(r.timestamp, startHour) === todayBusinessDate)
-          .reduce((sum, r) => sum + r.amount, 0);
+        // ただし、statusが'completed'の場合は、finalizeShiftで保存された累計データを保持
+        const publicStatusRef = doc(db, "public_status", targetUidForBroadcast);
+        const publicStatusSnap = await getDoc(publicStatusRef);
+        const existingData = publicStatusSnap.exists() ? publicStatusSnap.data() : null;
+        
+        const currentBusinessDate = getBusinessDate(Date.now(), startHour);
+        let todaySales = 0;
+        let todayRideCount = 0;
+        let todayDispatchCount = 0;
+        let todayStartTime: number | undefined = undefined;
+        let finalStatus: 'offline' | 'completed' = 'offline';
+        
+        // statusが'completed'の場合は、finalizeShiftで保存された累計データを保持
+        if (existingData?.status === 'completed') {
+          finalStatus = 'completed';
+          if (existingData.todayStartTime) {
+            const existingBusinessDate = getBusinessDate(existingData.todayStartTime, startHour);
+            if (existingBusinessDate === currentBusinessDate) {
+              // 当日の営業日であれば、既存の累計データを保持
+              todayStartTime = existingData.todayStartTime;
+              todaySales = existingData.sales !== undefined && existingData.sales !== null ? existingData.sales : 0;
+              todayRideCount = existingData.rideCount !== undefined && existingData.rideCount !== null ? existingData.rideCount : 0;
+              todayDispatchCount = existingData.dispatchCount !== undefined && existingData.dispatchCount !== null ? existingData.dispatchCount : 0;
+            }
+          } else {
+            // todayStartTimeがない場合でも、当日の営業日であれば累計データを保持
+            if (existingData.sales !== undefined && existingData.sales !== null) {
+              todaySales = existingData.sales;
+            }
+            if (existingData.rideCount !== undefined && existingData.rideCount !== null) {
+              todayRideCount = existingData.rideCount;
+            }
+            if (existingData.dispatchCount !== undefined && existingData.dispatchCount !== null) {
+              todayDispatchCount = existingData.dispatchCount;
+            }
+          }
+        } else {
+          // statusが'offline'の場合は、当日の売上のみ計算
+          const todayBusinessDate = getBusinessDate(Date.now(), startHour);
+          todaySales = currentHistory
+            .filter(r => getBusinessDate(r.timestamp, startHour) === todayBusinessDate)
+            .reduce((sum, r) => sum + r.amount, 0);
+        }
         
         const publicStatusData = {
           ...statusData,
-          status: 'offline',
-          sales: todaySales, // ★追加: オフライン時も営収を表示（ColleagueStatusListで使用）
-          rideCount: 0, // オフライン時は0
-          dispatchCount: 0, // オフライン時は0
+          status: finalStatus,
+          sales: todaySales,
+          rideCount: todayRideCount,
+          dispatchCount: todayDispatchCount,
+          ...(todayStartTime !== undefined && { todayStartTime }),
         };
         
         // undefinedを削除してから保存
         const cleanedPublicStatus = removeUndefinedFields(publicStatusData);
         const timestamp = Date.now();
         cleanedPublicStatus.lastUpdated = timestamp; // 必ずlastUpdatedを更新
-        console.log('[broadcastStatus] Saving offline status for uid:', targetUidForBroadcast, 'at', new Date(timestamp).toISOString());
+        console.log('[broadcastStatus] Saving offline/completed status for uid:', targetUidForBroadcast, 'at', new Date(timestamp).toISOString(), 'status:', finalStatus, 'sales:', todaySales, 'rideCount:', todayRideCount, 'dispatchCount:', todayDispatchCount);
         
         // ★修正: broadcastStatusではサブコレクションへの保存を行わない
         // サブコレクションへの保存はhandleSaveRecordで新規レコードのみ保存する
         
         setDoc(doc(db, "public_status", targetUidForBroadcast), cleanedPublicStatus, { merge: true }).then(() => {
-          console.log('[broadcastStatus] Successfully saved offline status for uid:', targetUidForBroadcast);
+          console.log('[broadcastStatus] Successfully saved offline/completed status for uid:', targetUidForBroadcast);
         }).catch((e) => {
-          console.error('[broadcastStatus] Failed to save offline status:', e);
+          console.error('[broadcastStatus] Failed to save offline/completed status:', e);
         });
       }
     } catch (e) {
@@ -1534,7 +1574,7 @@ const handleStart = (goal: number, hours: number, startOdo?: number) => {
     window.scrollTo(0, 0);
   };
 
-  const finalizeShift = (endOdo?: number) => {
+  const finalizeShift = async (endOdo?: number) => {
     if (shift && user) {
       const newHistory = [...history, ...shift.records].sort((a, b) => a.timestamp - b.timestamp);
       const startHour = monthlyStats.businessStartHour ?? 9;
@@ -1563,9 +1603,37 @@ const handleStart = (goal: number, hours: number, startOdo?: number) => {
         })
         .reduce((sum, r) => sum + r.amount, 0);
 
-      const finalRideCount = shift.records.length;
-      const finalDispatchCount = shift.records.filter(r => r.rideType !== 'FLOW' && r.rideType !== 'WAIT').length;
-      const finalShiftSales = shift.records.reduce((sum, r) => sum + r.amount, 0);
+      // 当日の最初の出庫時刻と累計データを取得
+      const publicStatusRef = doc(db, "public_status", user.uid);
+      const publicStatusSnap = await getDoc(publicStatusRef);
+      const existingData = publicStatusSnap.exists() ? publicStatusSnap.data() : null;
+      
+      const currentBusinessDate = getBusinessDate(Date.now(), startHour);
+      
+      // 当日の全レコードを取得（再出庫前のデータも含む）
+      const todaysAllRecords = newHistory.filter(r => getBusinessDate(r.timestamp, startHour) === currentBusinessDate);
+      
+      // 当日の累計データを計算（newHistoryから直接計算）
+      const todaySales = todaysAllRecords.reduce((sum, r) => sum + r.amount, 0);
+      const todayRideCount = todaysAllRecords.length;
+      const todayDispatchCount = todaysAllRecords.filter(r => r.rideType !== 'FLOW' && r.rideType !== 'WAIT').length;
+      
+      // 当日の最初の出庫時刻を取得
+      let todayStartTime = shift.startTime; // デフォルトは現在のシフトの開始時刻
+      
+      if (todaysAllRecords.length > 0) {
+        // 当日の全レコードから最初のタイムスタンプを取得
+        todayStartTime = Math.min(...todaysAllRecords.map(r => r.timestamp));
+      } else if (existingData?.todayStartTime) {
+        // レコードがない場合は、既存のtodayStartTimeを確認
+        const existingTodayStartTime = existingData.todayStartTime;
+        const existingBusinessDate = getBusinessDate(existingTodayStartTime, startHour);
+        
+        if (existingBusinessDate === currentBusinessDate) {
+          // 当日の営業日であれば、既存の最初の出庫時刻を保持
+          todayStartTime = existingTodayStartTime;
+        }
+      }
 
       setDoc(doc(db, "users", user.uid), { 
         shift: null, 
@@ -1578,9 +1646,10 @@ const handleStart = (goal: number, hours: number, startOdo?: number) => {
           uid: user.uid,
           name: monthlyStats.userName,
           status: 'completed',
-          sales: finalShiftSales,
-          rideCount: finalRideCount,
-          dispatchCount: finalDispatchCount,
+          todayStartTime: todayStartTime, // 当日の最初の出庫時刻
+          sales: todaySales, // 当日の累計営収
+          rideCount: todayRideCount, // 当日の累計回数
+          dispatchCount: todayDispatchCount, // 当日の累計配車
           monthlyTotal: updatedMonthlySales,
           plannedEndTime: Date.now(),
           lastUpdated: Date.now(),

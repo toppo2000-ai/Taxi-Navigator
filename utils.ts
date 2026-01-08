@@ -148,6 +148,65 @@ export const getRideCounts = (records: SalesRecord[]) => {
   return counts;
 };
 
+// 備考欄からアプリ名を抽出（GO配車、Didi配車、Uber配車、S.RIDE配車）
+// 乗車区分のアプリのみを検出（配車が付いているもの）
+export const extractAppTypeFromRemarks = (remarks?: string): 'GO' | 'Didi' | 'Uber' | 's.ride' | null => {
+  if (!remarks) return null;
+  if (remarks.includes('GO配車')) return 'GO';
+  if (remarks.includes('Didi配車')) return 'Didi';
+  if (remarks.includes('Uber配車')) return 'Uber';
+  if (remarks.includes('S.RIDE配車') || remarks.includes('s.ride配車')) return 's.ride';
+  return null;
+};
+
+// アプリ配車の集計を取得
+export const getAppBreakdown = (records: SalesRecord[]) => {
+  const appBreakdown: Record<string, number> = { GO: 0, Didi: 0, Uber: 0, 's.ride': 0 };
+  const appCounts: Record<string, number> = { GO: 0, Didi: 0, Uber: 0, 's.ride': 0 };
+  
+  records.forEach(r => {
+    // 乗車区分がAPPで、備考欄にアプリ名が含まれている場合のみ集計
+    if (r.rideType === 'APP') {
+      const appType = extractAppTypeFromRemarks(r.remarks);
+      if (appType) {
+        const total = r.amount + r.toll;
+        appBreakdown[appType] = (appBreakdown[appType] || 0) + total;
+        appCounts[appType] = (appCounts[appType] || 0) + 1;
+      }
+    }
+  });
+  
+  return { breakdown: appBreakdown, counts: appCounts };
+};
+
+// 備考欄から決済アプリ名を抽出（GO決済、Didi決済、Uber決済、s.ride決済）
+export const extractPaymentAppTypeFromRemarks = (remarks?: string): 'GO' | 'Didi' | 'Uber' | 's.ride' | null => {
+  if (!remarks) return null;
+  if (remarks.includes('GO決済')) return 'GO';
+  if (remarks.includes('Didi決済')) return 'Didi';
+  if (remarks.includes('Uber決済')) return 'Uber';
+  if (remarks.includes('s.ride決済')) return 's.ride';
+  return null;
+};
+
+// 決済アプリ別の集計を取得
+export const getPaymentAppBreakdown = (records: SalesRecord[]) => {
+  const appBreakdown: Record<string, number> = { GO: 0, Didi: 0, Uber: 0, 's.ride': 0 };
+  const appCounts: Record<string, number> = { GO: 0, Didi: 0, Uber: 0, 's.ride': 0 };
+  
+  records.forEach(r => {
+    // 備考欄に決済アプリ名が含まれている場合のみ集計
+    const appType = extractPaymentAppTypeFromRemarks(r.remarks);
+    if (appType) {
+      const total = r.amount + r.toll;
+      appBreakdown[appType] = (appBreakdown[appType] || 0) + total;
+      appCounts[appType] = (appCounts[appType] || 0) + 1;
+    }
+  });
+  
+  return { breakdown: appBreakdown, counts: appCounts };
+};
+
 // --- String Helpers for Address Formatting ---
 
 export const kanjiToArabic = (str: string) => {

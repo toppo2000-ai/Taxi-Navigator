@@ -22,7 +22,8 @@ import {
   getPaymentBreakdown,
   getRideBreakdown,
   getRideCounts,
-  formatTime
+  formatTime,
+  getAppBreakdown
 } from '../../utils';
 import { SalesRecordCard } from './SalesRecordCard';
 import { PaymentBreakdownList, getPaymentCounts } from './PaymentBreakdownList';
@@ -57,6 +58,7 @@ export const ReportSummaryView: React.FC<ReportSummaryViewProps> = ({
   const cashAmount = breakdown['CASH'] || 0;
   const rideBreakdown = getRideBreakdown(records);
   const rideCounts = getRideCounts(records);
+  const { breakdown: appBreakdown, counts: appCounts } = getAppBreakdown(records);
   
   const displayStart = startTime || (records.length > 0 ? Math.min(...records.map(r => r.timestamp)) : 0);
   const displayEnd = endTime || (records.length > 0 ? Math.max(...records.map(r => r.timestamp)) : 0);
@@ -267,7 +269,8 @@ export const ReportSummaryView: React.FC<ReportSummaryViewProps> = ({
           breakdown={breakdown} 
           counts={counts} 
           customLabels={safeCustomLabels} 
-          enabledMethods={enabledMethods} 
+          enabledMethods={enabledMethods}
+          records={records}
         />
       </div>
 
@@ -275,7 +278,9 @@ export const ReportSummaryView: React.FC<ReportSummaryViewProps> = ({
         <RideBreakdownList 
           breakdown={rideBreakdown} 
           counts={rideCounts} 
-          enabledRideTypes={Object.keys(RIDE_LABELS) as any[]} 
+          enabledRideTypes={Object.keys(RIDE_LABELS) as any[]}
+          appBreakdown={appBreakdown}
+          appCounts={appCounts}
         />
       </div>
     </div>

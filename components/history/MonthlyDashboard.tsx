@@ -63,6 +63,8 @@ export const MonthlyDashboard: React.FC<MonthlyDashboardProps> = ({
   const [viewMode, setViewMode] = useState<'monthly' | 'yearly'>('monthly');
   const [tableTargetDate, setTableTargetDate] = useState(new Date());
   const [isTableOpen, setIsTableOpen] = useState(false);
+  const [isMonthPickerOpen, setIsMonthPickerOpen] = useState(false);
+  const [selectedYear, setSelectedYear] = useState<number | null>(null);
 
   React.useEffect(() => {
     setTableTargetDate(new Date(displayMonth));
@@ -415,22 +417,104 @@ export const MonthlyDashboard: React.FC<MonthlyDashboardProps> = ({
         </div>
       </div>
 
-      <div className="flex items-center justify-between bg-gray-800 rounded-[24px] p-2 border-2 border-blue-500 shadow-inner">
+      <div className="flex items-center justify-between bg-gray-800 rounded-[24px] p-2 border-2 border-blue-500 shadow-inner relative">
         <button 
           onClick={() => setCurrentMonth(new Date(new Date(displayMonth).setMonth(displayMonth.getMonth()-1)))} 
           className="p-3 text-gray-400 active:scale-90 flex-shrink-0"
         >
           <ChevronLeft className="w-7 h-7" />
         </button>
-        <span className="font-black text-[clamp(1.4rem,6vw,2rem)] text-white tracking-tight whitespace-nowrap">
+        <button
+          onClick={() => {
+            setSelectedYear(null);
+            setIsMonthPickerOpen(true);
+          }}
+          className="font-black text-[clamp(1.4rem,6vw,2rem)] text-white tracking-tight whitespace-nowrap hover:text-blue-400 transition-colors cursor-pointer"
+        >
           {displayMonthStr}
-        </span>
+        </button>
         <button 
           onClick={() => setCurrentMonth(new Date(new Date(displayMonth).setMonth(displayMonth.getMonth()+1)))} 
           className="p-3 text-gray-400 active:scale-90 flex-shrink-0"
         >
           <ChevronRight className="w-7 h-7" />
         </button>
+
+        {/* 年月選択プルダウン */}
+        {isMonthPickerOpen && (
+          <>
+            {/* オーバーレイ */}
+            <div
+              className="fixed inset-0 bg-black/50 z-40"
+              onClick={() => {
+                setIsMonthPickerOpen(false);
+                setSelectedYear(null);
+              }}
+            />
+            {/* プルダウンメニュー */}
+            <div className="absolute top-full mt-2 left-1/2 transform -translate-x-1/2 z-50 bg-gray-800 rounded-xl border-2 border-blue-500 shadow-2xl p-4 min-w-[280px] max-h-[400px] overflow-y-auto">
+              <div className="text-sm font-bold text-blue-400 mb-3 text-center">年月を選択</div>
+              <div className="space-y-4">
+                {/* 年選択 */}
+                <div>
+                  <div className="text-xs text-gray-400 font-bold mb-2">年</div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(() => {
+                      const currentYearNum = new Date().getFullYear();
+                      const yearsList: number[] = [];
+                      for (let i = 0; i <= 5; i++) {
+                        yearsList.push(currentYearNum - i);
+                      }
+                      const displayYear = selectedYear !== null ? selectedYear : displayMonth.getFullYear();
+                      return yearsList.map(year => (
+                        <button
+                          key={year}
+                          onClick={() => setSelectedYear(year)}
+                          className={`px-3 py-2 rounded-lg text-sm font-black transition-colors ${
+                            year === displayYear
+                              ? 'bg-blue-500 text-white'
+                              : 'bg-gray-700 text-white hover:bg-gray-600'
+                          }`}
+                        >
+                          {year}
+                        </button>
+                      ));
+                    })()}
+                  </div>
+                </div>
+                {/* 月選択 */}
+                <div>
+                  <div className="text-xs text-gray-400 font-bold mb-2">月</div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(month => {
+                      const targetYear = selectedYear !== null ? selectedYear : displayMonth.getFullYear();
+                      const isCurrentMonth = month === displayMonth.getMonth() + 1 && targetYear === displayMonth.getFullYear();
+                      return (
+                        <button
+                          key={month}
+                          onClick={() => {
+                            const targetDate = new Date(targetYear, month - 1, shimebiDay === 0 ? 28 : shimebiDay);
+                            const { end } = getBillingPeriod(targetDate, shimebiDay, businessStartHour);
+                            setCurrentMonth(end);
+                            setIsMonthPickerOpen(false);
+                            setSelectedYear(null);
+                          }}
+                          className={`px-3 py-2 rounded-lg text-sm font-black transition-colors ${
+                            isCurrentMonth
+                              ? 'bg-blue-500 text-white'
+                              : 'bg-gray-700 text-white hover:bg-gray-600'
+                          }`}
+                        >
+                          {month}月
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       <section className="space-y-6">
