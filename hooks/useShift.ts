@@ -165,8 +165,26 @@ export const useShift = (user: User | null, targetUid: string | undefined, stats
         let todayDispatchCount = 0;
         let todayStartTime: number | undefined = undefined;
         
-        if (existingData) {
-          // 既存のtodayStartTimeが当日の営業日か確認
+        // ★修正: statusが'completed'の場合は、finalizeShiftで保存されたデータを必ず保持（再計算しない）
+        if (existingData?.status === 'completed') {
+          // 当日の営業日か確認
+          if (existingData.todayStartTime) {
+            const existingBusinessDate = getBusinessDate(existingData.todayStartTime, startHour);
+            if (existingBusinessDate === currentBusinessDate) {
+              // 当日の営業日であれば、既存の累計データをそのまま保持
+              todayStartTime = existingData.todayStartTime;
+              todaySales = existingData.sales !== undefined && existingData.sales !== null ? existingData.sales : 0;
+              todayRideCount = existingData.rideCount !== undefined && existingData.rideCount !== null ? existingData.rideCount : 0;
+              todayDispatchCount = existingData.dispatchCount !== undefined && existingData.dispatchCount !== null ? existingData.dispatchCount : 0;
+            }
+          } else {
+            // todayStartTimeがない場合でも、既存のデータを保持
+            todaySales = existingData.sales !== undefined && existingData.sales !== null ? existingData.sales : 0;
+            todayRideCount = existingData.rideCount !== undefined && existingData.rideCount !== null ? existingData.rideCount : 0;
+            todayDispatchCount = existingData.dispatchCount !== undefined && existingData.dispatchCount !== null ? existingData.dispatchCount : 0;
+          }
+        } else if (existingData) {
+          // statusが'completed'でない場合のみ、既存データから取得を試みる
           if (existingData.todayStartTime) {
             const existingBusinessDate = getBusinessDate(existingData.todayStartTime, startHour);
             if (existingBusinessDate === currentBusinessDate) {
@@ -187,8 +205,19 @@ export const useShift = (user: User | null, targetUid: string | undefined, stats
           status: existingData?.status === 'completed' ? 'completed' : 'offline',
         };
         
-        if (todayStartTime !== undefined) {
-          // 当日の営業日であれば、累計データを保存
+        // ★修正: statusが'completed'の場合は、必ず既存データを保持
+        if (existingData?.status === 'completed') {
+          // finalizeShiftで保存されたデータをそのまま保持
+          if (todayStartTime !== undefined) {
+            updateData.todayStartTime = todayStartTime;
+          } else if (existingData.todayStartTime) {
+            updateData.todayStartTime = existingData.todayStartTime;
+          }
+          updateData.sales = todaySales;
+          updateData.rideCount = todayRideCount;
+          updateData.dispatchCount = todayDispatchCount;
+        } else if (todayStartTime !== undefined) {
+          // statusが'completed'でない場合のみ、計算した値を保存
           updateData.todayStartTime = todayStartTime;
           updateData.sales = todaySales;
           updateData.rideCount = todayRideCount;

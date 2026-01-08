@@ -41,14 +41,15 @@ export const SalesRecordCard: React.FC<SalesRecordCardProps> = ({
     const isEven = index % 2 === 0;
     const rowBgClass = isEven ? 'bg-slate-800' : 'bg-slate-700';
     const hoverBgClass = isEven ? 'hover:bg-slate-700' : 'hover:bg-slate-600';
-    const borderClass = 'border-gray-700';
+    // ★修正: 区切り線をよりハッキリ見えるように（色を濃く、太さを増やす）
+    const borderClass = 'border-2 border-gray-500';
     
     return (
-      <tr className={`${rowBgClass} border-b ${borderClass}`}>
+      <tr className={`${rowBgClass} border-b-2 border-gray-500`}>
         {/* 左端: 番号列（中央揃え、アイコン表示、クリック可能） */}
         <td 
           onClick={onClick}
-          className={`py-2 px-1 border-r ${borderClass} align-middle text-center cursor-pointer transition-colors ${hoverBgClass}`}
+          className={`py-2 px-1 border-r-2 border-gray-500 align-middle text-center cursor-pointer transition-colors ${hoverBgClass}`}
         >
           <div className="flex items-center justify-center w-full">
             <div className="relative flex items-center justify-center" style={{ width: 'clamp(2rem, 6vw, 2.5rem)', height: 'clamp(2rem, 6vw, 2.5rem)' }}>
@@ -63,7 +64,7 @@ export const SalesRecordCard: React.FC<SalesRecordCardProps> = ({
         {/* 時刻列（クリック可能） */}
         <td 
           onClick={onClick}
-          className={`py-2 px-1 border-r ${borderClass} align-middle text-center w-[85px] cursor-pointer transition-colors ${hoverBgClass}`}
+          className={`py-2 px-1 border-r-2 border-gray-500 align-middle text-center w-[85px] cursor-pointer transition-colors ${hoverBgClass}`}
         >
           {/* 時刻（下線付き、白文字） */}
           <div className="text-white font-black text-lg underline mb-1 whitespace-nowrap">
@@ -75,10 +76,10 @@ export const SalesRecordCard: React.FC<SalesRecordCardProps> = ({
           </div>
         </td>
 
-        {/* 乗降地列（クリック不可） */}
-        <td className={`py-2 px-2 border-r ${borderClass} align-top`}>
-          {/* 乗車地（白文字、Googleマップアプリ版リンク） */}
-          <div className="text-white text-base font-bold mb-1 truncate">
+        {/* 乗降地列（クリック不可、横スクロール可能） */}
+        <td className={`py-2 px-2 border-r-2 border-gray-500 align-top`} style={{ maxWidth: '170px', overflow: 'hidden' }}>
+          {/* 乗車地（白文字、Googleマップアプリ版リンク、横スクロール可能） */}
+          <div className="text-white text-base font-bold mb-1 overflow-x-auto whitespace-nowrap scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-gray-800" style={{ maxHeight: '1.5rem' }}>
             {record.pickupCoords ? (
               <a
                 href={getGoogleMapsUrl(record.pickupCoords) || "#"}
@@ -94,10 +95,10 @@ export const SalesRecordCard: React.FC<SalesRecordCardProps> = ({
           </div>
           
           {/* 点線 */}
-          <div className="border-b border-dotted border-gray-600 my-1 opacity-60"></div>
+          <div className="border-b-2 border-dotted border-gray-400 my-1"></div>
           
-          {/* 降車地（右寄せ、白文字、Googleマップアプリ版リンク） */}
-          <div className="text-white text-base font-bold truncate text-right">
+          {/* 降車地（右寄せ、白文字、Googleマップアプリ版リンク、横スクロール可能） */}
+          <div className="text-white text-base font-bold overflow-x-auto whitespace-nowrap text-right scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-gray-800" style={{ maxHeight: '1.5rem' }}>
             {record.dropoffCoords ? (
               <a
                 href={getGoogleMapsUrl(record.dropoffCoords) || "#"}
@@ -114,7 +115,7 @@ export const SalesRecordCard: React.FC<SalesRecordCardProps> = ({
         </td>
 
         {/* 中央: 売上金額（縦横中央揃え、クリック不可） */}
-        <td className="py-2 px-1 text-center align-middle w-[75px]">
+        <td className="py-2 px-1 text-center align-middle" style={{ width: '95px', minWidth: '95px' }}>
           <div className="text-white font-black text-base whitespace-nowrap">
             {totalAmount.toLocaleString()}
           </div>

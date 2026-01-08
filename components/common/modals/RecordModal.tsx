@@ -830,7 +830,13 @@ export const RecordModal: React.FC<{
                   <label className="text-xl font-black text-gray-400 uppercase mb-3 block tracking-widest flex items-center justify-between">
                     <span>6. 決済方法</span>
                     {selectedPaymentApp && (
-                      <span className="text-xl font-black text-gray-400">{selectedPaymentApp}</span>
+                      <button
+                        type="button"
+                        onClick={() => setShowPaymentAppTypeModal(true)}
+                        className="text-xl font-black text-gray-400 normal-case hover:text-blue-400 active:scale-95 transition-all cursor-pointer underline decoration-dotted decoration-gray-500 hover:decoration-blue-400"
+                      >
+                        {selectedPaymentApp}
+                      </button>
                     )}
                   </label>
                   <div className="relative">
@@ -857,49 +863,6 @@ export const RecordModal: React.FC<{
                   </div>
                 </div>
 
-                {/* ★追加: アプリ決済の場合のみ表示される GO/DiDi/Uber 選択ボタン */}
-                {isAppPayment && (
-                  <div className="animate-in fade-in slide-in-from-top-2 duration-300">
-                    <label className="text-[10px] font-bold text-amber-500 uppercase tracking-widest mb-1 block">
-                      アプリ会社選択 (備考へ自動入力)
-                    </label>
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() => handlePaymentAppTypeSelect('GO')}
-                        className={`flex-1 py-4 rounded-xl font-black text-3xl border transition-all active:scale-95 ${
-                          remarks.includes('GO決済') 
-                            ? 'bg-amber-500 text-black border-amber-500'
-                            : 'bg-gray-800 text-gray-300 border-gray-600 hover:bg-gray-700'
-                        }`}
-                      >
-                        GO
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handlePaymentAppTypeSelect('DiDi')}
-                        className={`flex-1 py-4 rounded-xl font-black text-3xl border transition-all active:scale-95 ${
-                          remarks.includes('DiDi決済')
-                            ? 'bg-amber-500 text-black border-amber-500'
-                            : 'bg-gray-800 text-gray-300 border-gray-600 hover:bg-gray-700'
-                        }`}
-                      >
-                        DiDi
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handlePaymentAppTypeSelect('Uber')}
-                        className={`flex-1 py-4 rounded-xl font-black text-3xl border transition-all active:scale-95 ${
-                          remarks.includes('Uber決済')
-                            ? 'bg-amber-500 text-black border-amber-500'
-                            : 'bg-gray-800 text-gray-300 border-gray-600 hover:bg-gray-700'
-                        }`}
-                      >
-                        Uber
-                      </button>
-                    </div>
-                  </div>
-                )}
 
                 {method !== 'CASH' && (
                   <div className="bg-blue-900/10 p-4 rounded-3xl border border-blue-900/30 shadow-inner">

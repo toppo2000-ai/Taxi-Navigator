@@ -1576,7 +1576,22 @@ const handleStart = (goal: number, hours: number, startOdo?: number) => {
 
   const finalizeShift = async (endOdo?: number) => {
     if (shift && user) {
-      const newHistory = [...history, ...shift.records].sort((a, b) => a.timestamp - b.timestamp);
+      // ★修正: 重複排除（IDベースで重複を排除）
+      const recordsMap = new Map<string, SalesRecord>();
+      // まずhistoryのレコードを追加
+      history.forEach(r => {
+        if (r.id) {
+          recordsMap.set(r.id, r);
+        }
+      });
+      // 次にshift.recordsのレコードを追加（同じIDがあれば上書き）
+      shift.records.forEach(r => {
+        if (r.id) {
+          recordsMap.set(r.id, r);
+        }
+      });
+      const newHistory = Array.from(recordsMap.values()).sort((a, b) => a.timestamp - b.timestamp);
+      
       const startHour = monthlyStats.businessStartHour ?? 9;
       const bDate = getBusinessDate(shift.startTime, startHour);
       
@@ -1610,7 +1625,7 @@ const handleStart = (goal: number, hours: number, startOdo?: number) => {
       
       const currentBusinessDate = getBusinessDate(Date.now(), startHour);
       
-      // 当日の全レコードを取得（再出庫前のデータも含む）
+      // ★修正: 当日の全レコードを取得（重複排除済みのnewHistoryから取得）
       const todaysAllRecords = newHistory.filter(r => getBusinessDate(r.timestamp, startHour) === currentBusinessDate);
       
       // 当日の累計データを計算（newHistoryから直接計算）

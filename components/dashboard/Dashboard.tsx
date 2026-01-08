@@ -1088,14 +1088,20 @@ const Dashboard: React.FC<DashboardProps> = ({
             </div>
 
             {isSlim ? (
-              <div className="bg-gray-900 rounded-lg border border-gray-700 overflow-hidden shadow-sm">
+              <div className="bg-gray-900 rounded-lg border-2 border-gray-500 overflow-hidden shadow-sm">
                 <table className="w-full border-collapse">
+                  <colgroup>
+                    <col style={{ width: '40px' }} />
+                    <col style={{ width: '85px' }} />
+                    <col style={{ width: 'auto', minWidth: '130px', maxWidth: '170px' }} />
+                    <col style={{ width: '95px' }} />
+                  </colgroup>
                   <thead>
                     <tr className="bg-orange-500 text-white">
-                      <th className="py-2 px-1 border-r border-orange-600 text-center text-base font-black w-[40px]">回数</th>
-                      <th className="py-2 px-1 border-r border-orange-600 text-center text-base font-black w-[85px]">時刻</th>
-                      <th className="py-2 px-2 border-r border-orange-600 text-center text-base font-black flex-1">乗車地/降車地</th>
-                      <th className="py-2 px-1 text-center text-base font-black w-[75px]">売上</th>
+                      <th className="py-2 px-1 border-r-2 border-orange-600 text-center text-base font-black">回数</th>
+                      <th className="py-2 px-1 border-r-2 border-orange-600 text-center text-base font-black">時刻</th>
+                      <th className="py-2 px-2 border-r-2 border-orange-600 text-center text-base font-black">乗車地/降車地</th>
+                      <th className="py-2 px-1 text-center text-base font-black">売上</th>
                     </tr>
                   </thead>
                   <tbody>
