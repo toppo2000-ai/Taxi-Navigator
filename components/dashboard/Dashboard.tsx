@@ -83,7 +83,7 @@ interface DashboardProps {
   onStart: (goal: number, hours: number, startOdo?: number) => void;
   onUpdateStartOdo?: (newOdo: number) => void; 
   onEnd: () => void;
-  onAdd: (initialRemarks?: string) => void;
+  onAdd: (initialRemarks?: string, initialData?: Partial<SalesRecord>) => void;
   onEdit: (record: SalesRecord) => void;
   onUpdateGoal: (newGoal: number) => void;
   onUpdateShiftGoal: (newGoal: number) => void;
@@ -124,6 +124,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   const [isHistoryReversed, setIsHistoryReversed] = useState(true);
   const [isDetailed, setIsDetailed] = useState(false);
   const [isSlim, setIsSlim] = useState(false);
+  const [isHistoryVisible, setIsHistoryVisible] = useState(true);
   const [now, setNow] = useState(Date.now());
   
   // 時計表示用ステート
@@ -403,8 +404,6 @@ const Dashboard: React.FC<DashboardProps> = ({
   const handleStopBreakAndRide = () => {
     const minutes = Math.floor(breakDurationMs / 60000);
     // 休憩から乗車記録へ移行する際は実車状態にする
-    // onAddを先に呼んでモーダルを開き、その後でbreakStateを更新する
-    // これにより、useEffectが'riding'状態を維持できる
     onAdd(`待機時間: ${minutes}分`);
     // モーダルが開いた後にbreakStateを更新（useEffectが'riding'を維持する）
     setTimeout(() => {
@@ -959,12 +958,12 @@ const Dashboard: React.FC<DashboardProps> = ({
               </div>
               <div className="mt-3 text-lg font-black text-gray-500 flex flex-wrap items-center gap-x-4 gap-y-2">
                 <span className="flex items-center gap-2 overflow-hidden min-w-0">
-                    <span className="text-[10px] bg-gray-800 px-2 py-1 rounded text-gray-400 font-black uppercase tracking-tighter whitespace-nowrap flex-shrink-0">税抜合計</span> 
+                    <span className="text-xs bg-gray-800 px-2 py-1 rounded text-gray-400 font-black uppercase tracking-tighter whitespace-nowrap flex-shrink-0">税抜合計</span> 
                     <span className="truncate">{formatCurrency(dailyNet)}</span>
                 </span>
 
                 <span className="flex items-center gap-2 overflow-hidden min-w-0">
-                    <span className="text-[10px] bg-gray-800 px-2 py-1 rounded text-gray-400 font-black uppercase tracking-tighter whitespace-nowrap flex-shrink-0">基準値</span> 
+                    <span className="text-xs bg-gray-800 px-2 py-1 rounded text-gray-400 font-black uppercase tracking-tighter whitespace-nowrap flex-shrink-0">基準値</span> 
                     <span className={`truncate font-black ${referenceValue >= 0 ? 'text-green-500' : 'text-red-500'}`}>
                       {referenceValue >= 0 ? '+' : ''}{Math.round(referenceValue).toLocaleString()}
                     </span>
@@ -1031,7 +1030,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                     className="bg-green-600 text-white py-4 rounded-xl font-black text-sm active:scale-95 shadow-lg flex flex-col items-center justify-center gap-1 leading-none"
                   >
                     <Play className="w-6 h-6" />
-                    乗車記録へ (待機)
+                    乗車記録へ
                   </button>
                   <button 
                     onClick={handleStopBreakAndRegister}
@@ -1065,7 +1064,10 @@ const Dashboard: React.FC<DashboardProps> = ({
             <ColleagueStatusList followingUsers={stats.followingUsers || []} />
 
             <div className="flex flex-col gap-3">
-              <h3 className="text-lg font-black px-2 text-white flex justify-between items-center tracking-tight italic uppercase flex-wrap gap-2">
+              <h3 
+                className="text-lg font-black px-2 text-white flex justify-between items-center tracking-tight italic uppercase flex-wrap gap-2 cursor-pointer active:opacity-70 transition-opacity"
+                onClick={() => setIsHistoryVisible(!isHistoryVisible)}
+              >
                 <span className="whitespace-nowrap">今回の履歴</span>
                 <div className="flex gap-2">
                   <button 
@@ -1087,85 +1089,87 @@ const Dashboard: React.FC<DashboardProps> = ({
               </h3>
             </div>
 
-            {isSlim ? (
-              <div className="bg-gray-900 rounded-lg border-2 border-gray-500 overflow-hidden shadow-sm">
-                <table className="w-full border-collapse">
-                  <colgroup>
-                    <col style={{ width: '40px' }} />
-                    <col style={{ width: '85px' }} />
-                    <col style={{ width: 'auto', minWidth: '130px', maxWidth: '170px' }} />
-                    <col style={{ width: '95px' }} />
-                  </colgroup>
-                  <thead>
-                    <tr className="bg-orange-500 text-white">
-                      <th className="py-2 px-1 border-r-2 border-orange-600 text-center text-base font-black">回数</th>
-                      <th className="py-2 px-1 border-r-2 border-orange-600 text-center text-base font-black">時刻</th>
-                      <th className="py-2 px-2 border-r-2 border-orange-600 text-center text-base font-black">乗車地/降車地</th>
-                      <th className="py-2 px-1 text-center text-base font-black">売上</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sortedRecords.length === 0 ? (
-                      <tr>
-                        <td colSpan={4} className="p-8 text-center text-gray-400 font-black uppercase tracking-widest text-sm">
-                          記録がありません
-                        </td>
+            {isHistoryVisible && (
+              isSlim ? (
+                <div className="bg-gray-900 rounded-lg border-2 border-gray-500 overflow-hidden shadow-sm">
+                  <table className="w-full border-collapse">
+                    <colgroup>
+                      <col style={{ width: '40px' }} />
+                      <col style={{ width: '85px' }} />
+                      <col style={{ width: 'auto', minWidth: '130px', maxWidth: '170px' }} />
+                      <col style={{ width: '95px' }} />
+                    </colgroup>
+                    <thead>
+                      <tr className="bg-orange-500 text-white">
+                        <th className="py-2 px-1 border-r-2 border-orange-600 text-center text-base font-black">回数</th>
+                        <th className="py-2 px-1 border-r-2 border-orange-600 text-center text-base font-black">時刻</th>
+                        <th className="py-2 px-2 border-r-2 border-orange-600 text-center text-base font-black">乗車地/降車地</th>
+                        <th className="py-2 px-1 text-center text-base font-black">売上</th>
                       </tr>
-                    ) : (
-                      sortedRecords.map((r, idx) => {
-                        const displayIdx = isHistoryReversed ? shiftRecords.length - idx : idx + 1;
-                        return (
-                          <SalesRecordCard 
-                            key={r.id}
-                            record={r} 
-                            index={displayIdx} 
-                            isDetailed={isDetailed} 
-                            isSlim={isSlim}
-                            customLabels={stats.customPaymentLabels || {}} 
-                            businessStartHour={stats.businessStartHour}
-                            onClick={() => onEdit(r)}
-                          />
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div className="space-y-3 w-full">
-                {sortedRecords.length === 0 ? (
-                  <div className="bg-gray-800 p-8 rounded-[28px] border-2 border-blue-500 text-center text-gray-600 font-black uppercase tracking-widest text-sm">記録がありません</div>
-                ) : (
-                  sortedRecords.map((r, idx) => {
-                    const displayIdx = isHistoryReversed ? shiftRecords.length - idx : idx + 1;
-                    return (
-                      <div key={r.id} className="relative">
-                        {/* ★追加: 一時保存（金額0）の場合のバッジ表示 */}
-                        {r.amount === 0 && (
-                          <div className="absolute -top-2 -right-1 z-10">
-                            <span className="bg-red-500 text-white text-[10px] font-black px-2 py-1 rounded-full shadow-lg border border-red-400 animate-pulse">
-                              一時保存中
-                            </span>
+                    </thead>
+                    <tbody>
+                      {sortedRecords.length === 0 ? (
+                        <tr>
+                          <td colSpan={4} className="p-8 text-center text-gray-400 font-black uppercase tracking-widest text-sm">
+                            記録がありません
+                          </td>
+                        </tr>
+                      ) : (
+                        sortedRecords.map((r, idx) => {
+                          const displayIdx = isHistoryReversed ? shiftRecords.length - idx : idx + 1;
+                          return (
+                            <SalesRecordCard 
+                              key={r.id}
+                              record={r} 
+                              index={displayIdx} 
+                              isDetailed={isDetailed} 
+                              isSlim={isSlim}
+                              customLabels={stats.customPaymentLabels || {}} 
+                              businessStartHour={stats.businessStartHour}
+                              onClick={() => onEdit(r)}
+                            />
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="space-y-3 w-full">
+                  {sortedRecords.length === 0 ? (
+                    <div className="bg-gray-800 p-8 rounded-[28px] border-2 border-blue-500 text-center text-gray-600 font-black uppercase tracking-widest text-sm">記録がありません</div>
+                  ) : (
+                    sortedRecords.map((r, idx) => {
+                      const displayIdx = isHistoryReversed ? shiftRecords.length - idx : idx + 1;
+                      return (
+                        <div key={r.id} className="relative">
+                          {/* ★追加: 一時保存（金額0）の場合のバッジ表示 */}
+                          {r.amount === 0 && (
+                            <div className="absolute -top-2 -right-1 z-10">
+                              <span className="bg-red-500 text-white text-[10px] font-black px-2 py-1 rounded-full shadow-lg border border-red-400 animate-pulse">
+                                一時保存中
+                              </span>
+                            </div>
+                          )}
+                          
+                          {/* ★追加: 一時保存の場合は赤い枠線で強調 */}
+                          <div className={r.amount === 0 ? "ring-2 ring-red-500 ring-offset-2 ring-offset-[#0A0E14] rounded-[24px]" : ""}>
+                            <SalesRecordCard 
+                              record={r} 
+                              index={displayIdx} 
+                              isDetailed={isDetailed} 
+                              isSlim={isSlim}
+                              customLabels={stats.customPaymentLabels || {}} 
+                              businessStartHour={stats.businessStartHour}
+                              onClick={() => onEdit(r)}
+                            />
                           </div>
-                        )}
-                        
-                        {/* ★追加: 一時保存の場合は赤い枠線で強調 */}
-                        <div className={r.amount === 0 ? "ring-2 ring-red-500 ring-offset-2 ring-offset-[#0A0E14] rounded-[24px]" : ""}>
-                          <SalesRecordCard 
-                            record={r} 
-                            index={displayIdx} 
-                            isDetailed={isDetailed} 
-                            isSlim={isSlim}
-                            customLabels={stats.customPaymentLabels || {}} 
-                            businessStartHour={stats.businessStartHour}
-                            onClick={() => onEdit(r)}
-                          />
                         </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
+                      );
+                    })
+                  )}
+                </div>
+              )
             )}
 
             {shiftRecords.length > 0 && (

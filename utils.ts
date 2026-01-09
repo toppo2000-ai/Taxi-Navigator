@@ -389,7 +389,7 @@ export const removeUndefinedFields = (obj: any): any => {
 /**
  * 請求期間の統計情報を計算（簡易モード優先）
  */
-import { MonthlyStats, SalesRecord, Shift } from './types';
+import { MonthlyStats, Shift } from './types';
 
 export const calculatePeriodStats = (
   monthlyStats: MonthlyStats,

@@ -75,6 +75,8 @@ const HistoryView: React.FC<HistoryViewProps> = ({
   const targetStartHourComputed = isViewingMeComputed ? businessStartHour : (targetUserObj?.businessStartHour || 9);
 
   // --- Data Fetching: Public Status ---
+  // ★最適化: 全コレクションを監視するのではなく、必要なユーザーのみを監視
+  // ただし、HistoryViewでは全ユーザーから選択する必要があるため、limit(50)で制限
   useEffect(() => {
     const q = query(collection(db, "public_status"), orderBy("lastUpdated", "desc"), limit(50));
     const unsub = onSnapshot(q, (snap) => {

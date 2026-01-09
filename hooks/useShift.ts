@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { doc, onSnapshot, setDoc, getDoc } from 'firebase/firestore';
 import { User } from 'firebase/auth';
 import { db } from '../services/firebase';
@@ -34,6 +34,9 @@ export const sanitizeShift = (rawShift: any): Shift | null => {
 export const useShift = (user: User | null, targetUid: string | undefined, stats: MonthlyStats, history: SalesRecord[]) => {
   const [shift, setShift] = useState<Shift | null>(null);
   const [breakState, setBreakState] = useState<BreakState>({ isActive: false, startTime: null });
+  // ★追加: public_statusのキャッシュ（getDocの呼び出しを削減）
+  const [publicStatusCache, setPublicStatusCache] = useState<any>(null);
+  const publicStatusCacheRef = useRef<any>(null);
 
   useEffect(() => {
     if (!targetUid) {
@@ -62,8 +65,21 @@ export const useShift = (user: User | null, targetUid: string | undefined, stats
       }
     });
 
+    // ★追加: public_statusも監視してキャッシュを更新（getDocの呼び出しを削減）
+    const unsubPublicStatus = onSnapshot(doc(db, 'public_status', targetUid), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        publicStatusCacheRef.current = data;
+        setPublicStatusCache(data);
+      } else {
+        publicStatusCacheRef.current = null;
+        setPublicStatusCache(null);
+      }
+    });
+
     return () => {
       unsubData();
+      unsubPublicStatus();
     };
   }, [targetUid]);
 
@@ -107,11 +123,16 @@ export const useShift = (user: User | null, targetUid: string | undefined, stats
           allowedViewers: stats.allowedViewers
       };
 
-      // 当日の最初の出庫時刻と累計データを取得
-      // public_statusから現在のtodayStartTimeを取得して、当日の営業日で最初の出庫時刻を保持
-      const publicStatusRef = doc(db, "public_status", user.uid);
-      const publicStatusSnap = await getDoc(publicStatusRef);
-      const existingData = publicStatusSnap.exists() ? publicStatusSnap.data() : null;
+      // ★最適化: public_statusのキャッシュを使用（getDocの呼び出しを削減）
+      // キャッシュが存在する場合はそれを使用、なければgetDocで取得
+      let existingData = publicStatusCacheRef.current;
+      if (!existingData && user.uid === targetUid) {
+        // キャッシュがない場合のみgetDocを実行（初回のみ）
+        const publicStatusRef = doc(db, "public_status", user.uid);
+        const publicStatusSnap = await getDoc(publicStatusRef);
+        existingData = publicStatusSnap.exists() ? publicStatusSnap.data() : null;
+        publicStatusCacheRef.current = existingData;
+      }
       
       const currentBusinessDate = getBusinessDate(Date.now(), startHour);
       
@@ -155,9 +176,8 @@ export const useShift = (user: User | null, targetUid: string | undefined, stats
         }, { merge: true });
       } else {
         // 営業終了時（shiftがnull）でも、当日の営業日の累計データを保持
-        const publicStatusRef = doc(db, "public_status", user.uid);
-        const publicStatusSnap = await getDoc(publicStatusRef);
-        const existingData = publicStatusSnap.exists() ? publicStatusSnap.data() : null;
+        // ★最適化: キャッシュを使用（既に取得済みの場合はgetDocを呼ばない）
+        // existingDataは上記で既に取得済み
         
         const currentBusinessDate = getBusinessDate(Date.now(), startHour);
         let todaySales = 0;
@@ -239,7 +259,7 @@ export const useShift = (user: User | null, targetUid: string | undefined, stats
     } catch (e) {
       console.error("Broadcast failed:", e);
     }
-  }, [user, shift, history, stats]);
+  }, [user, shift, history, stats, publicStatusCache]);
 
   return { shift, setShift, breakState, setBreakState, broadcastStatus };
 };

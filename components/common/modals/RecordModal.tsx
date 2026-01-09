@@ -974,12 +974,6 @@ export const RecordModal: React.FC<{
                         })()}
                       </div>
                     </div>
-                    <button
-                      onClick={onClose}
-                      className="bg-red-600 hover:bg-red-500 text-white font-black text-xs px-4 py-2 rounded-full transition-all active:scale-95"
-                    >
-                      終了
-                    </button>
                   </div>
 
                   {/* 主要売上表示 */}

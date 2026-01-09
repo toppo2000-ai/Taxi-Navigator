@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Lock, ArrowUpDown, ArrowDown, ArrowUp } from 'lucide-react';
-import { collection, onSnapshot, query, doc, getDocs, orderBy, where } from 'firebase/firestore';
+import { doc, onSnapshot, collection, query, where, orderBy } from 'firebase/firestore';
 import { db, auth } from '../../services/firebase';
 import { SalesRecord } from '../../types';
 import { 
@@ -24,17 +24,17 @@ interface MonthData {
 export interface ColleagueData {
   uid: string;
   name: string;
-  startTime: number;
+  startTime?: number;
   todayStartTime?: number; // 当日の最初の出庫時刻
-  plannedEndTime: number;
-  sales: number;
-  rideCount: number;
+  plannedEndTime?: number;
+  sales?: number;
+  rideCount?: number;
   dispatchCount?: number;
-  status: 'active' | 'break' | 'offline' | 'completed' | 'riding'; 
+  status?: 'active' | 'break' | 'offline' | 'completed' | 'riding'; 
   records?: SalesRecord[]; 
   months?: Record<string, MonthData>; 
   currentMonthKey?: string; 
-  lastUpdated: number;
+  lastUpdated?: number;
   businessStartHour?: number;
   visibilityMode?: 'PUBLIC' | 'PRIVATE' | 'CUSTOM';
   allowedViewers?: string[];
@@ -53,244 +53,223 @@ const ColleagueDetailModal: React.FC<{
     onClose: () => void 
 }> = ({ user, date, onClose }) => {
     
-  // ★修正: リアルタイムリスナーで public_status からデータを取得
-    const [realtimeData, setRealtimeData] = useState<{
-        records: SalesRecord[], 
-        total: number
-    }>({ records: [], total: 0 }); // nullではなく空配列で初期化
-    const [isLoading, setIsLoading] = useState(true);
-    const [isSlim, setIsSlim] = useState(false); // スリム表示の状態
-    const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc'); // 並び順: 'desc'=降順（新しい順）、'asc'=昇順（古い順）
+  const [realtimeData, setRealtimeData] = useState<{
+      records: SalesRecord[], 
+      total: number
+  }>({ records: [], total: 0 });
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSlim, setIsSlim] = useState(false);
+  const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
 
-    useEffect(() => {
-        let unsubDoc: (() => void) | null = null;
-        let isCancelled = false;
+  useEffect(() => {
+      let unsubDoc: (() => void) | null = null;
+      let unsubSubcollection: (() => void) | null = null;
+      let isCancelled = false;
 
-        const loadData = async () => {
-            try {
-                // 当日の営業日を取得
-                const now = Date.now();
-                const businessStartHour = user.businessStartHour || 9;
-                const todayBusinessDate = getBusinessDate(now, businessStartHour);
-                
-                // 当日の営業日の開始時刻と終了時刻を計算
-                // todayBusinessDateは文字列（例："2026/01/05"）なので、パースして日付オブジェクトを作成
-                const [year, month, day] = todayBusinessDate.split('/').map(Number);
-                const todayStart = new Date(year, month - 1, day, businessStartHour, 0, 0, 0);
-                const todayEnd = new Date(todayStart);
-                todayEnd.setDate(todayEnd.getDate() + 1);
-                todayEnd.setMilliseconds(todayEnd.getMilliseconds() - 1);
+      const now = Date.now();
+      const businessStartHour = user.businessStartHour || 9;
+      const todayBusinessDate = getBusinessDate(now, businessStartHour);
+      
+      const [year, month, day] = todayBusinessDate.split('/').map(Number);
+      const todayStart = new Date(year, month - 1, day, businessStartHour, 0, 0, 0);
+      const todayEnd = new Date(todayStart);
+      todayEnd.setDate(todayEnd.getDate() + 1);
+      todayEnd.setMilliseconds(todayEnd.getMilliseconds() - 1);
 
-                // 1. 現在進行中のシフトのレコードを取得（public_statusドキュメントから）
-                unsubDoc = onSnapshot(doc(db, "public_status", user.uid), async (docSnap) => {
-                    if (isCancelled) return;
+      let activeRecords: SalesRecord[] = [];
+      
+      const updateRecords = () => {
+          const filteredRecords = activeRecords
+              .filter((r: SalesRecord) => {
+                  if (!r || typeof r.timestamp !== 'number') return false;
+                  const recordBusinessDate = getBusinessDate(r.timestamp, businessStartHour);
+                  return recordBusinessDate === todayBusinessDate;
+              })
+              .sort((a, b) => b.timestamp - a.timestamp);
+          const total = filteredRecords.reduce((sum, r) => sum + (r.amount || 0), 0);
+          if (!isCancelled) {
+              setRealtimeData({ records: filteredRecords, total });
+              setIsLoading(false);
+          }
+      };
 
-                    if (docSnap.exists()) {
-                        const data = docSnap.data();
-                        const activeRecords: SalesRecord[] = data.records || [];
+      const updateRecordsWithSubcollection = (subcollectionRecords: SalesRecord[]) => {
+          const allRecordsMap = new Map<string, SalesRecord>();
+          [...activeRecords, ...subcollectionRecords].forEach((r) => {
+              if (r && typeof r.timestamp === 'number') {
+                  const recordBusinessDate = getBusinessDate(r.timestamp, businessStartHour);
+                  if (recordBusinessDate === todayBusinessDate) {
+                      allRecordsMap.set(r.id || '', r);
+                  }
+              }
+          });
 
-                        // 2. サブコレクションから当日のレコードを取得
-                        try {
-                            const subcollectionRef = collection(db, "public_status", user.uid, "history");
-                            const subcollectionQuery = query(
-                                subcollectionRef,
-                                where("timestamp", ">=", todayStart.getTime()),
-                                where("timestamp", "<=", todayEnd.getTime()),
-                                orderBy("timestamp", "desc")
-                            );
-                            const subcollectionSnap = await getDocs(subcollectionQuery);
+          const allRecords = Array.from(allRecordsMap.values())
+              .sort((a, b) => b.timestamp - a.timestamp);
 
-                            const subcollectionRecords: SalesRecord[] = [];
-                            subcollectionSnap.forEach((doc) => {
-                                subcollectionRecords.push(doc.data() as SalesRecord);
-                            });
+          const total = allRecords.reduce((sum, r) => sum + (r.amount || 0), 0);
 
-                            // 3. 全レコードを結合（重複排除）し、当日の営業日のレコードのみをフィルタリング
-                            const allRecordsMap = new Map<string, SalesRecord>();
-                            [...activeRecords, ...subcollectionRecords].forEach((r) => {
-                                if (r && typeof r.timestamp === 'number') {
-                                    const recordBusinessDate = getBusinessDate(r.timestamp, businessStartHour);
-                                    // 当日の営業日のレコードのみを含める
-                                    if (recordBusinessDate === todayBusinessDate) {
-                                        allRecordsMap.set(r.id, r);
-                                    }
-                                }
-                            });
+          if (!isCancelled) {
+              setRealtimeData({ records: allRecords, total });
+              setIsLoading(false);
+          }
+      };
 
-                            const allRecords = Array.from(allRecordsMap.values())
-                                .sort((a, b) => b.timestamp - a.timestamp); // 初期は降順でソート
+      unsubDoc = onSnapshot(doc(db, "public_status", user.uid), (docSnap) => {
+          if (isCancelled) return;
+          if (docSnap.exists()) {
+              const data = docSnap.data();
+              activeRecords = data.records || [];
+              updateRecords();
+          } else {
+              activeRecords = [];
+              updateRecords();
+          }
+      }, (error) => {
+          console.error('[ColleagueDetailModal] Snapshot error:', error);
+          if (!isCancelled) {
+              setIsLoading(false);
+              setRealtimeData({ records: [], total: 0 });
+          }
+      });
 
-                            const total = allRecords.reduce((sum, r) => sum + (r.amount || 0), 0);
+      const subcollectionRef = collection(db, "public_status", user.uid, "history");
+      const subcollectionQuery = query(
+          subcollectionRef,
+          where("timestamp", ">=", todayStart.getTime()),
+          where("timestamp", "<=", todayEnd.getTime()),
+          orderBy("timestamp", "desc")
+      );
+      unsubSubcollection = onSnapshot(subcollectionQuery, (snap) => {
+          if (isCancelled) return;
+          const subcollectionRecords: SalesRecord[] = [];
+          snap.forEach((doc) => {
+              subcollectionRecords.push(doc.data() as SalesRecord);
+          });
+          updateRecordsWithSubcollection(subcollectionRecords);
+      }, (error) => {
+          console.error('[ColleagueDetailModal] Subcollection error:', error);
+          if (!isCancelled) {
+              updateRecordsWithSubcollection([]);
+          }
+      });
 
-                            if (!isCancelled) {
-                                setRealtimeData({ records: allRecords, total });
-                                setIsLoading(false);
-                            }
-                        } catch (subError) {
-                            console.error('[ColleagueDetailModal] Subcollection error:', subError);
-                            // サブコレクションの読み込みに失敗した場合は、activeRecordsのみを使用
-                            const filteredRecords = activeRecords
-                                .filter((r: SalesRecord) => {
-                                    if (!r || typeof r.timestamp !== 'number') return false;
-                                    const recordBusinessDate = getBusinessDate(r.timestamp, businessStartHour);
-                                    return recordBusinessDate === todayBusinessDate;
-                                })
-                                .sort((a, b) => b.timestamp - a.timestamp);
-                            const total = filteredRecords.reduce((sum, r) => sum + (r.amount || 0), 0);
-                            if (!isCancelled) {
-                                setRealtimeData({ records: filteredRecords, total });
-                                setIsLoading(false);
-                            }
-                        }
-                    } else {
-                        if (!isCancelled) {
-                            setRealtimeData({ records: [], total: 0 });
-                            setIsLoading(false);
-                        }
-                    }
-                }, (error) => {
-                    console.error('[ColleagueDetailModal] Snapshot error:', error);
-                    if (!isCancelled) {
-                        setIsLoading(false);
-                        setRealtimeData({ records: [], total: 0 });
-                    }
-                });
-            } catch (error) {
-                console.error('[ColleagueDetailModal] Load error:', error);
-                if (!isCancelled) {
-                    setIsLoading(false);
-                    setRealtimeData({ records: [], total: 0 });
-                }
-            }
-        };
+      return () => {
+          isCancelled = true;
+          if (unsubDoc) unsubDoc();
+          if (unsubSubcollection) unsubSubcollection();
+      };
+  }, [user.uid, user.businessStartHour]);
 
-        loadData();
+  return createPortal(
+      <div className="fixed inset-0 z-[9999] flex flex-col justify-end bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="absolute inset-0" onClick={onClose} />
+          <div className="relative w-full max-w-md mx-auto bg-gray-800 rounded-t-[32px] p-6 text-white h-[85vh] flex flex-col shadow-2xl animate-in slide-in-from-bottom-10 duration-300 border-t-2 border-orange-500">
+              
+              <div className="flex justify-between items-center mb-4 flex-shrink-0">
+                  <div>
+                      <h2 className="text-xl font-black flex items-center gap-2">
+                          {user.name} <span className="text-xs font-normal text-gray-400 bg-gray-800 px-2 py-1 rounded-full">{date}</span>
+                      </h2>
+                  </div>
+                  <button onClick={onClose} className="p-3 bg-gray-800 rounded-full text-gray-400 hover:text-white active:scale-95 transition-transform">
+                      <X className="w-6 h-6" />
+                  </button>
+              </div>
+              
+              <div className="flex justify-end gap-2 mb-4 flex-shrink-0">
+                  <button
+                      onClick={() => setSortOrder(prev => prev === 'desc' ? 'asc' : 'desc')}
+                      className={`px-4 py-2 rounded-xl text-sm font-bold transition-all flex items-center gap-2 bg-blue-500 text-white hover:bg-blue-600`}
+                  >
+                      {sortOrder === 'desc' ? (
+                          <>
+                              <ArrowDown className="w-4 h-4" />
+                              降順
+                          </>
+                      ) : (
+                          <>
+                              <ArrowUp className="w-4 h-4" />
+                              昇順
+                          </>
+                      )}
+                  </button>
+                  <button
+                      onClick={() => setIsSlim(!isSlim)}
+                      className={`px-4 py-2 rounded-xl text-sm font-bold transition-all ${
+                          isSlim 
+                              ? 'bg-orange-500 text-gray-900' 
+                              : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                      }`}
+                  >
+                      {isSlim ? '通常表示' : 'スリム表示'}
+                  </button>
+              </div>
 
-        return () => {
-            isCancelled = true;
-            if (unsubDoc) {
-                unsubDoc();
-            }
-        };
-    }, [user.uid, user.businessStartHour]);
+              {(() => {
+                  const sortedRecords = [...realtimeData.records].sort((a, b) => {
+                      return sortOrder === 'desc' 
+                          ? b.timestamp - a.timestamp
+                          : a.timestamp - b.timestamp;
+                  });
 
-    return createPortal(
-        <div className="fixed inset-0 z-[9999] flex flex-col justify-end bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
-            <div className="absolute inset-0" onClick={onClose} />
-            <div className="relative w-full max-w-md mx-auto bg-gray-800 rounded-t-[32px] p-6 text-white h-[85vh] flex flex-col shadow-2xl animate-in slide-in-from-bottom-10 duration-300 border-t-2 border-orange-500">
-                
-                {/* ヘッダー部分 */}
-                <div className="flex justify-between items-center mb-4 flex-shrink-0">
-                    <div>
-                        <h2 className="text-xl font-black flex items-center gap-2">
-                            {user.name} <span className="text-xs font-normal text-gray-400 bg-gray-800 px-2 py-1 rounded-full">{date}</span>
-                        </h2>
-                    </div>
-                    <button onClick={onClose} className="p-3 bg-gray-800 rounded-full text-gray-400 hover:text-white active:scale-95 transition-transform">
-                        <X className="w-6 h-6" />
-                    </button>
-                </div>
-                
-                {/* スリム表示トグルと並び順変更 */}
-                <div className="flex justify-end gap-2 mb-4 flex-shrink-0">
-                    <button
-                        onClick={() => setSortOrder(prev => prev === 'desc' ? 'asc' : 'desc')}
-                        className={`px-4 py-2 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${
-                            sortOrder === 'desc'
-                                ? 'bg-blue-500 text-white hover:bg-blue-600' 
-                                : 'bg-blue-500 text-white hover:bg-blue-600'
-                        }`}
-                    >
-                        {sortOrder === 'desc' ? (
-                            <>
-                                <ArrowDown className="w-4 h-4" />
-                                降順
-                            </>
-                        ) : (
-                            <>
-                                <ArrowUp className="w-4 h-4" />
-                                昇順
-                            </>
-                        )}
-                    </button>
-                    <button
-                        onClick={() => setIsSlim(!isSlim)}
-                        className={`px-4 py-2 rounded-xl text-sm font-bold transition-all ${
-                            isSlim 
-                                ? 'bg-orange-500 text-gray-900' 
-                                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                        }`}
-                    >
-                        {isSlim ? '通常表示' : 'スリム表示'}
-                    </button>
-                </div>
-
-                {/* 詳細リスト表示エリア */}
-                {(() => {
-                    // 並び順に応じてレコードをソート
-                    const sortedRecords = [...realtimeData.records].sort((a, b) => {
-                        return sortOrder === 'desc' 
-                            ? b.timestamp - a.timestamp  // 降順（新しい順）
-                            : a.timestamp - b.timestamp; // 昇順（古い順）
-                    });
-
-                    if (isSlim) {
-                        return (
-                            <div className="flex-1 overflow-y-auto pb-safe pr-1 custom-scrollbar">
-                                {isLoading ? (
-                                    <div className="text-center text-gray-500 py-10 font-bold">読み込み中...</div>
-                                ) : sortedRecords.length === 0 ? (
-                                    <div className="text-center text-gray-500 py-10 font-bold">記録がありません</div>
-                                ) : (
-                                    <table className="w-full border-collapse">
-                                        <tbody>
-                                            {sortedRecords.map((r, idx) => (
-                                                <SalesRecordCard 
-                                                    key={r.id || idx}
-                                                    record={r}
-                                                    index={sortOrder === 'desc' ? sortedRecords.length - idx : idx + 1}
-                                                    isDetailed={false}
-                                                    customLabels={{}} 
-                                                    businessStartHour={user.businessStartHour || 9}
-                                                    onClick={() => {}}
-                                                    isSlim={true}
-                                                />
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                )}
-                            </div>
-                        );
-                    } else {
-                        return (
-                            <div className="flex-1 overflow-y-auto space-y-3 pb-safe pr-1 custom-scrollbar">
-                                {isLoading ? (
-                                    <div className="text-center text-gray-500 py-10 font-bold">読み込み中...</div>
-                                ) : sortedRecords.length === 0 ? (
-                                    <div className="text-center text-gray-500 py-10 font-bold">記録がありません</div>
-                                ) : (
-                                    sortedRecords.map((r, idx) => (
-                                        <div key={r.id || idx} className="opacity-100">
-                                            <SalesRecordCard 
-                                                record={r}
-                                                index={sortOrder === 'desc' ? sortedRecords.length - idx : idx + 1}
-                                                isDetailed={true}
-                                                customLabels={{}} 
-                                                businessStartHour={user.businessStartHour || 9}
-                                                onClick={() => {}} 
-                                                isSlim={false}
-                                            />
-                                        </div>
-                                    ))
-                                )}
-                            </div>
-                        );
-                    }
-                })()}
-            </div>
-        </div>,
-        document.body
-    );
+                  if (isSlim) {
+                      return (
+                          <div className="flex-1 overflow-y-auto pb-safe pr-1 custom-scrollbar">
+                              {isLoading ? (
+                                  <div className="text-center text-gray-500 py-10 font-bold">読み込み中...</div>
+                              ) : sortedRecords.length === 0 ? (
+                                  <div className="text-center text-gray-500 py-10 font-bold">記録がありません</div>
+                              ) : (
+                                  <table className="w-full border-collapse">
+                                      <tbody>
+                                          {sortedRecords.map((r, idx) => (
+                                              <SalesRecordCard 
+                                                  key={r.id || idx}
+                                                  record={r}
+                                                  index={sortOrder === 'desc' ? sortedRecords.length - idx : idx + 1}
+                                                  isDetailed={false}
+                                                  customLabels={{}} 
+                                                  businessStartHour={user.businessStartHour || 9}
+                                                  onClick={() => {}}
+                                                  isSlim={true}
+                                              />
+                                          ))}
+                                      </tbody>
+                                  </table>
+                              )}
+                          </div>
+                      );
+                  } else {
+                      return (
+                          <div className="flex-1 overflow-y-auto space-y-3 pb-safe pr-1 custom-scrollbar">
+                              {isLoading ? (
+                                  <div className="text-center text-gray-500 py-10 font-bold">読み込み中...</div>
+                              ) : sortedRecords.length === 0 ? (
+                                  <div className="text-center text-gray-500 py-10 font-bold">記録がありません</div>
+                              ) : (
+                                  sortedRecords.map((r, idx) => (
+                                      <div key={r.id || idx} className="opacity-100">
+                                          <SalesRecordCard 
+                                              record={r}
+                                              index={sortOrder === 'desc' ? sortedRecords.length - idx : idx + 1}
+                                              isDetailed={true}
+                                              customLabels={{}} 
+                                              businessStartHour={user.businessStartHour || 9}
+                                              onClick={() => {}} 
+                                              isSlim={false}
+                                          />
+                                      </div>
+                                  ))
+                              )}
+                          </div>
+                      );
+                  }
+              })()}
+          </div>
+      </div>,
+      document.body
+  );
 };
 
 // --- Colleague Status List Component ---
@@ -304,139 +283,88 @@ export const ColleagueStatusList: React.FC<{ followingUsers: string[] }> = ({ fo
   const currentUserEmail = auth.currentUser?.email || "";
   const isAdmin = ADMIN_EMAILS.includes(currentUserEmail);
 
+  // ★最適化: 必要なユーザーのみを監視（設定画面で選択したユーザーのみ）
   useEffect(() => {
-    let unsubscribe: (() => void) | null = null;
+    const usersToWatch = new Set([...(followingUsers || []), currentUserId].filter(Boolean));
     
-    if (isAdmin) {
-      // 管理者: 全コレクションを監視（全ユーザーを表示する必要があるため）
-      const q = query(collection(db, "public_status"));
-      unsubscribe = onSnapshot(q, (snapshot) => {
-        const allUsers: ColleagueData[] = [];
-        snapshot.forEach((doc) => {
-          const data = doc.data() as ColleagueData;
-          // デバッグ: statusフィールドの確認
-          if (!data.status) {
-            console.warn('[ColleagueStatusList] Missing status field for user:', data.uid, data.name, 'data:', data);
-          }
-          allUsers.push(data);
-        });
-
-        const now = Date.now();
-        const currentDisplayDate = getBusinessDate(now, SHARED_SWITCH_HOUR);
-
-        allUsers.sort((a, b) => {
-          const aDate = a.startTime ? getBusinessDate(a.startTime, SHARED_SWITCH_HOUR) : '';
-          const aHasData = aDate === currentDisplayDate || (a.sales > 0 && a.lastUpdated > now - 12 * 3600000);
-
-          const bDate = b.startTime ? getBusinessDate(b.startTime, SHARED_SWITCH_HOUR) : '';
-          const bHasData = bDate === currentDisplayDate || (b.sales > 0 && b.lastUpdated > now - 12 * 3600000);
-
-          if (aHasData && !bHasData) return -1;
-          if (!aHasData && bHasData) return 1;
-          
-          return b.sales - a.sales;
-        });
-
-        setColleagues(allUsers);
-      }, (error) => {
-        console.error('[ColleagueStatusList] Snapshot error:', error);
-      });
-    } else {
-      // 一般ユーザー: フォロー中のユーザーと自分のみを個別に監視（通信量削減）
-      // FirestoreのonSnapshotは変化がない限り通信しないため効率的
-      const usersToWatch = new Set([...(followingUsers || []), currentUserId].filter(Boolean));
-      
-      if (usersToWatch.size === 0) {
-        setColleagues([]);
-        return;
-      }
-
-      const unsubscribes: (() => void)[] = [];
-      const userDataMap = new Map<string, ColleagueData>();
-
-      usersToWatch.forEach((uid) => {
-        const unsub = onSnapshot(doc(db, "public_status", uid), (docSnap) => {
-          if (docSnap.exists()) {
-            const data = docSnap.data() as ColleagueData;
-            
-            // デバッグ: statusフィールドの確認
-            if (!data.status) {
-              console.warn('[ColleagueStatusList] Missing status field for user:', uid, data.name, 'data:', data);
-            }
-            
-            // 公開設定チェック（自分以外の場合）
-            if (uid !== currentUserId) {
-              const mode = data.visibilityMode || 'PUBLIC';
-              if (mode === 'PRIVATE') {
-                userDataMap.delete(uid);
-                updateColleaguesList(userDataMap);
-                return;
-              }
-              if (mode === 'CUSTOM') {
-                const isAllowed = data.allowedViewers && data.allowedViewers.includes(currentUserId || '');
-                if (!isAllowed) {
-                  userDataMap.delete(uid);
-                  updateColleaguesList(userDataMap);
-                  return;
-                }
-              }
-            }
-            
-            userDataMap.set(uid, data);
-          } else {
-            userDataMap.delete(uid);
-          }
-
-          updateColleaguesList(userDataMap);
-        }, (error) => {
-          console.error(`[ColleagueStatusList] Error watching user ${uid}:`, error);
-        });
-        unsubscribes.push(unsub);
-      });
-
-      // ユーザーリストを更新する共通関数
-      const updateColleaguesList = (userMap: Map<string, ColleagueData>) => {
-        const users = Array.from(userMap.values());
-        const now = Date.now();
-        const currentDisplayDate = getBusinessDate(now, SHARED_SWITCH_HOUR);
-
-        users.sort((a, b) => {
-          const aDate = a.startTime ? getBusinessDate(a.startTime, SHARED_SWITCH_HOUR) : '';
-          const aHasData = aDate === currentDisplayDate || (a.sales > 0 && a.lastUpdated > now - 12 * 3600000);
-
-          const bDate = b.startTime ? getBusinessDate(b.startTime, SHARED_SWITCH_HOUR) : '';
-          const bHasData = bDate === currentDisplayDate || (b.sales > 0 && b.lastUpdated > now - 12 * 3600000);
-
-          if (aHasData && !bHasData) return -1;
-          if (!aHasData && bHasData) return 1;
-          
-          return b.sales - a.sales;
-        });
-
-        setColleagues(users);
-      };
-
-      unsubscribe = () => {
-        unsubscribes.forEach(unsub => unsub());
-      };
+    if (usersToWatch.size === 0) {
+      setColleagues([]);
+      return;
     }
 
+    const unsubscribes: (() => void)[] = [];
+    const userDataMap = new Map<string, ColleagueData>();
+
+    const updateColleaguesList = () => {
+      const users = Array.from(userDataMap.values());
+      const now = Date.now();
+      const currentDisplayDate = getBusinessDate(now, SHARED_SWITCH_HOUR);
+
+      users.sort((a, b) => {
+        const aDate = a.todayStartTime || a.startTime;
+        const aHasData = aDate ? getBusinessDate(aDate, a.businessStartHour || SHARED_SWITCH_HOUR) === currentDisplayDate : false;
+
+        const bDate = b.todayStartTime || b.startTime;
+        const bHasData = bDate ? getBusinessDate(bDate, b.businessStartHour || SHARED_SWITCH_HOUR) === currentDisplayDate : false;
+
+        if (aHasData && !bHasData) return -1;
+        if (!bHasData && aHasData) return 1;
+        
+        return (b.sales || 0) - (a.sales || 0);
+      });
+
+      setColleagues(users);
+    };
+
+    usersToWatch.forEach((uid) => {
+      const unsub = onSnapshot(doc(db, "public_status", uid), (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data() as ColleagueData;
+          
+          // 一般ユーザーの場合は公開設定をチェック
+          if (!isAdmin && uid !== currentUserId) {
+            const mode = data.visibilityMode || 'PUBLIC';
+            if (mode === 'PRIVATE') {
+              userDataMap.delete(uid);
+              updateColleaguesList();
+              return;
+            }
+            if (mode === 'CUSTOM') {
+              const isAllowed = data.allowedViewers && data.allowedViewers.includes(currentUserId || '');
+              if (!isAllowed) {
+                userDataMap.delete(uid);
+                updateColleaguesList();
+                return;
+              }
+            }
+          }
+          
+          userDataMap.set(uid, { ...data, uid });
+        } else {
+          userDataMap.delete(uid);
+        }
+
+        updateColleaguesList();
+      }, (error) => {
+        console.error(`[ColleagueStatusList] Error watching user ${uid}:`, error);
+      });
+      unsubscribes.push(unsub);
+    });
+
     return () => {
-      if (unsubscribe) unsubscribe();
+      unsubscribes.forEach(unsub => unsub());
     };
   }, [followingUsers, currentUserId, isAdmin]);
 
-  const formatBusinessTimeStr = (timestamp: number) => {
+  const formatBusinessTimeStr = (timestamp?: number) => {
     if (!timestamp) return '--:--';
     const d = new Date(timestamp);
     return d.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
   };
 
-  // 現在の表示日付（各ユーザーのbusinessStartHourに基づいて判定するため、ここではSHARED_SWITCH_HOURを使用）
   const currentDisplayDate = getBusinessDate(Date.now(), SHARED_SWITCH_HOUR);
 
-  const renderStatusBadge = (user: ColleagueData, hasDataToday: boolean) => {
-      // statusが存在する場合は状態を表示（hasDataTodayがfalseでも表示）
+  const renderStatusBadge = (user: ColleagueData) => {
       if (user.status) {
           switch (user.status) {
               case 'riding':
@@ -456,70 +384,38 @@ export const ColleagueStatusList: React.FC<{ followingUsers: string[] }> = ({ fo
                   return <span className="text-blue-400 font-black text-sm whitespace-nowrap">空車</span>;
           }
       }
-      
-      // statusが存在しない場合のみ「－」を表示
-      if (!hasDataToday) {
-          return <span className="text-gray-500 font-bold text-sm whitespace-nowrap">－</span>;
-      }
-
-      // フォールバック: hasDataTodayがtrueだがstatusがない場合
-      return <span className="text-blue-400 font-black text-sm whitespace-nowrap">空車</span>;
+      return <span className="text-gray-500 font-bold text-sm whitespace-nowrap">－</span>;
   };
 
-  // ★簡易モードのみのユーザーを判定する関数
+  // 簡易モードのみのユーザーを判定
   const hasDetailedModeRecords = (user: ColleagueData): boolean => {
-    // recordsフィールド（現在進行中のシフトのレコード）を確認
     const currentRecords = (user as any).records || [];
     const hasDetailedInCurrent = currentRecords.some((r: SalesRecord) => 
       r && !r.remarks?.includes('簡易モード')
     );
-    
-    // topRecordsフィールド（過去最高記録トップ20、簡易モード除外済み）を確認
     const topRecords = (user as any).topRecords || [];
-    const hasDetailedInTop = topRecords.length > 0; // topRecordsは既に簡易モード除外済み
-    
-    // どちらか一方でも詳細モードのレコードがあればtrue
+    const hasDetailedInTop = topRecords.length > 0;
     return hasDetailedInCurrent || hasDetailedInTop;
   };
 
-  // ★フィルタリングロジック
+  // フィルタリング
   const filteredColleagues = colleagues.filter(u => {
-    if (u.uid === currentUserId) {
-      return true; // 自分は表示
-    }
+    if (u.uid === currentUserId) return true;
 
-    // 1. フォローリストに含まれていない場合は非表示
-    if (!followingUsers.includes(u.uid)) {
-      return false;
-    }
+    if (!followingUsers.includes(u.uid)) return false;
 
-    // 2. 権限チェック
     if (isAdmin) {
-      // 管理者の場合も簡易モードのみのユーザーは除外
-      if (!hasDetailedModeRecords(u)) {
-        return false;
-      }
-      return true; // 管理者は詳細モードユーザーを全員表示
+      if (!hasDetailedModeRecords(u)) return false;
+      return true;
     }
 
-    // 3. 相手の公開設定チェック
     const mode = u.visibilityMode || 'PUBLIC';
-    
-    if (mode === 'PRIVATE') {
-      return false;
-    }
-    
+    if (mode === 'PRIVATE') return false;
     if (mode === 'CUSTOM') {
-        const isAllowed = u.allowedViewers && u.allowedViewers.includes(currentUserId || '');
-        if (!isAllowed) {
-          return false;
-        }
+      const isAllowed = u.allowedViewers && u.allowedViewers.includes(currentUserId || '');
+      if (!isAllowed) return false;
     }
-    
-    // 4. 簡易モードのみのユーザーは除外（詳細モードのレコードが1つもない場合）
-    if (!hasDetailedModeRecords(u)) {
-      return false;
-    }
+    if (!hasDetailedModeRecords(u)) return false;
     
     return true; 
   });
@@ -554,34 +450,21 @@ export const ColleagueStatusList: React.FC<{ followingUsers: string[] }> = ({ fo
               <tbody className="text-sm text-gray-200">
                 {filteredColleagues.map((user, idx) => {
                   const isMe = user.uid === currentUserId;
-                  
-                  // 当日の最初の出庫時刻を取得（todayStartTimeがあればそれを使用、なければstartTimeを使用）
-                  const displayStartTime = user.todayStartTime || user.startTime;
-                  
-                  // 営業日の判定はtodayStartTimeを優先して使用（再出庫時でも最初の出庫時刻の営業日を使用）
-                  const timeForBusinessDate = user.todayStartTime || user.startTime;
                   const userBusinessStartHour = user.businessStartHour || SHARED_SWITCH_HOUR;
                   
-                  // 各ユーザーのbusinessStartHourを使用して営業日を判定
-                  const userBusinessDate = timeForBusinessDate ? getBusinessDate(timeForBusinessDate, userBusinessStartHour) : '';
-                  const currentUserBusinessDate = getBusinessDate(Date.now(), userBusinessStartHour);
+                  // ★修正: todayStartTimeを優先して使用（営業開始時に設定される）
+                  const displayStartTime = user.todayStartTime || user.startTime;
                   
-                  // 当日の営業日かどうかを判定（todayStartTimeがあればそれを使用）
-                  const isTodayBusinessDate = userBusinessDate === currentUserBusinessDate;
+                  // 当日の営業日かどうかを判定
+                  const isToday = displayStartTime ? 
+                    getBusinessDate(displayStartTime, userBusinessStartHour) === currentDisplayDate : false;
                   
-                  // 当日の営業日であれば、データがある場合は表示（リセット時刻まで）
-                  // 営業終了時でも、当日の営業日であれば累計データを表示
-                  const hasDataToday = isTodayBusinessDate || (user.sales > 0 && user.lastUpdated > Date.now() - 12 * 3600000);
-                  
-                  // 当日の営業日であれば、sales、rideCount、dispatchCountのいずれかが存在する場合は表示
-                  // 営業終了時（status: 'completed'）でも、登録されているデータがあれば表示する
-                  // 0も有効な値として扱う（営業終了時でも0を表示）
-                  // status: 'completed'の場合は、当日の営業日であれば必ずデータを表示
-                  const hasData = isTodayBusinessDate && (
-                    user.status === 'completed' || // 営業終了時は必ず表示
-                    (user.sales !== undefined && user.sales !== null) || 
-                    (user.rideCount !== undefined && user.rideCount !== null) || 
-                    (user.dispatchCount !== undefined && user.dispatchCount !== null)
+                  // データがあるかどうか（当日の営業日で、かつstatusまたはデータが存在する）
+                  const hasData = isToday && (
+                    user.status !== undefined || 
+                    user.sales !== undefined || 
+                    user.rideCount !== undefined || 
+                    user.dispatchCount !== undefined
                   );
 
                   const rowClass = isMe
@@ -595,10 +478,8 @@ export const ColleagueStatusList: React.FC<{ followingUsers: string[] }> = ({ fo
                   const salesClass = 'text-sm font-black text-white';
 
                   const handleNameClick = (e: React.MouseEvent) => {
-                    e.stopPropagation(); // 行全体のクリックイベントを防ぐ
-                    // Life360アプリを開く
+                    e.stopPropagation();
                     try {
-                      // Life360のURLスキームを使用
                       window.location.href = 'life360://';
                     } catch (error) {
                       console.error('Life360アプリを開けませんでした:', error);
@@ -619,19 +500,19 @@ export const ColleagueStatusList: React.FC<{ followingUsers: string[] }> = ({ fo
                         {isAdmin && user.visibilityMode === 'PRIVATE' && !isMe && <span className="text-[9px] text-red-400 block leading-none font-black scale-75 origin-left">[非公開]</span>}
                       </td>
                       <td className={`py-2 px-1 tracking-tighter border-r border-gray-700/30 ${dataClass}`}>
-                        {hasDataToday ? formatBusinessTimeStr(displayStartTime) : '－'}
+                        {hasData && displayStartTime ? formatBusinessTimeStr(displayStartTime) : '－'}
                       </td>
                       <td className="py-2 px-1 font-medium tracking-tighter border-r border-gray-700/30">
-                        {renderStatusBadge(user, hasDataToday)}
+                        {renderStatusBadge(user)}
                       </td>
                       <td className={`py-2 px-1 border-r border-gray-700/30 ${dataClass}`}>
-                        {hasData ? (user.rideCount !== undefined && user.rideCount !== null ? user.rideCount : '-') : '-'}
+                        {hasData && user.rideCount !== undefined && user.rideCount !== null ? user.rideCount : '-'}
                       </td>
                       <td className={`py-2 px-1 border-r border-gray-700/30 ${dataClass}`}>
-                        {hasData ? (user.dispatchCount !== undefined && user.dispatchCount !== null ? user.dispatchCount : '-') : '-'}
+                        {hasData && user.dispatchCount !== undefined && user.dispatchCount !== null ? user.dispatchCount : '-'}
                       </td>
                       <td className={`py-2 px-2 text-right tracking-tight ${salesClass}`}>
-                        {(hasDataToday && user.sales !== undefined && user.sales !== null ? user.sales : 0).toLocaleString()}
+                        {hasData && user.sales !== undefined && user.sales !== null ? user.sales.toLocaleString() : '0'}
                       </td>
                     </tr>
                   );

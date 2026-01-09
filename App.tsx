@@ -481,10 +481,57 @@ export default function App() {
         ).length;
         const endTime = currentShift.startTime + (currentShift.plannedHours * 3600000);
         const currentShiftSales = currentShift.records.reduce((sum, r) => sum + r.amount, 0);
+        
+        // ★修正: 当日の最初の出庫時刻を計算（todayStartTimeを設定）
+        const currentBusinessDate = getBusinessDate(Date.now(), startHour);
+        const allTodayRecords = [...currentHistory, ...currentShift.records]
+          .filter(r => getBusinessDate(r.timestamp, startHour) === currentBusinessDate);
+        
+        // ★修正: 再出庫時（切り替え時刻前）に既存のtodayStartTimeを優先的に使用
+        // 1. 既存のpublic_statusからtodayStartTimeを取得
+        // 注意: このgetDocは、shiftがnullの場合のelse節でも呼ばれる可能性があるが、
+        // 切り替え時刻前の再出庫では既存のtodayStartTimeを引き継ぐ必要があるため、ここでも取得
+        const publicStatusRef = doc(db, "public_status", targetUidForBroadcast);
+        let existingTodayStartTime: number | undefined = undefined;
+        try {
+          const publicStatusSnap = await getDoc(publicStatusRef);
+          if (publicStatusSnap.exists()) {
+            const existingData = publicStatusSnap.data();
+            if (existingData?.todayStartTime) {
+              const existingBusinessDate = getBusinessDate(existingData.todayStartTime, startHour);
+              // 既存のtodayStartTimeが当日の営業日であれば引き継ぐ（切り替え時刻前の再出庫）
+              if (existingBusinessDate === currentBusinessDate) {
+                existingTodayStartTime = existingData.todayStartTime;
+              }
+            }
+          }
+        } catch (e) {
+          console.error("[broadcastStatus] Failed to get existing todayStartTime:", e);
+        }
+        
+        // 2. todayStartTimeを決定（優先順位: 既存のtodayStartTime > レコードの最小値 > shift.startTime）
+        const shiftStartBusinessDate = getBusinessDate(currentShift.startTime, startHour);
+        let todayStartTime: number;
+        if (existingTodayStartTime !== undefined) {
+          // 既存のtodayStartTimeを優先（切り替え時刻前の再出庫）
+          todayStartTime = existingTodayStartTime;
+        } else if (allTodayRecords.length > 0) {
+          const minRecordTime = Math.min(...allTodayRecords.map(r => r.timestamp));
+          // shift.startTimeが当日の営業日で、かつレコードの最小値より小さい場合はshift.startTimeを使用
+          if (shiftStartBusinessDate === currentBusinessDate && currentShift.startTime < minRecordTime) {
+            todayStartTime = currentShift.startTime;
+          } else {
+            todayStartTime = minRecordTime;
+          }
+        } else {
+          // レコードがない場合、shift.startTimeが当日の営業日であればそれを使用
+          todayStartTime = shiftStartBusinessDate === currentBusinessDate ? currentShift.startTime : currentShift.startTime;
+        }
 
         const publicStatusData = {
           ...statusData,
           startTime: currentShift.startTime,
+          todayStartTime: todayStartTime, // ★追加: 当日の最初の出庫時刻
           plannedEndTime: endTime,
           sales: currentShiftSales,
           rideCount: count,
@@ -1426,27 +1473,45 @@ export default function App() {
     };
   }, [history, shift, monthlyStats]);
 
+  // ★最適化: broadcastStatusの呼び出しをデバウンス（読み取り回数を削減）
+  const broadcastStatusTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
   /**
    * ★修正: historyが更新されたら、broadcastStatusを呼んでmonthlyTotalを再計算
    * （ランキング表示で使用されるpublic_statusのmonthlyTotalフィールドを更新）
    * 注意: broadcastStatusはpublic_statusドキュメントを更新するだけで、history stateには影響しないため無限ループにはならない
    * ★修正: モーダルが開いている場合は'riding'状態を維持
+   * ★最適化: デバウンス処理を追加（500ms待機してから実行）
    */
   useEffect(() => {
     if (user && monthlyStats.userName) {
-      const actingUser = { ...user, uid: targetUid } as User;
-      // モーダルが開いている場合は'riding'状態を維持
-      if (recordModalState.open) {
-        broadcastStatus(actingUser, shift, history, monthlyStats, 'riding').catch((e) => {
-          console.error("[App] Broadcast status (riding) failed after history state update:", e);
-        });
-      } else {
-        const currentStatus = shift ? (breakState.isActive ? 'break' : 'active') : 'offline';
-        broadcastStatus(actingUser, shift, history, monthlyStats, currentStatus).catch((e) => {
-          console.error("[App] Broadcast status failed after history state update:", e);
-        });
+      // 既存のタイムアウトをクリア
+      if (broadcastStatusTimeoutRef.current) {
+        clearTimeout(broadcastStatusTimeoutRef.current);
       }
+      
+      // 500ms待機してからbroadcastStatusを実行（連続した更新をまとめる）
+      broadcastStatusTimeoutRef.current = setTimeout(() => {
+        const actingUser = { ...user, uid: targetUid } as User;
+        // モーダルが開いている場合は'riding'状態を維持
+        if (recordModalState.open) {
+          broadcastStatus(actingUser, shift, history, monthlyStats, 'riding').catch((e) => {
+            console.error("[App] Broadcast status (riding) failed after history state update:", e);
+          });
+        } else {
+          const currentStatus = shift ? (breakState.isActive ? 'break' : 'active') : 'offline';
+          broadcastStatus(actingUser, shift, history, monthlyStats, currentStatus).catch((e) => {
+            console.error("[App] Broadcast status failed after history state update:", e);
+          });
+        }
+      }, 500);
     }
+    
+    return () => {
+      if (broadcastStatusTimeoutRef.current) {
+        clearTimeout(broadcastStatusTimeoutRef.current);
+      }
+    };
   }, [history, shift, monthlyStats.userName, user, targetUid, breakState.isActive, recordModalState.open]);
 
 
@@ -1542,16 +1607,46 @@ export default function App() {
     setActiveTab('history');
   }, []);
 
-const handleStart = (goal: number, hours: number, startOdo?: number) => {
+const handleStart = async (goal: number, hours: number, startOdo?: number) => {
     if (!user) return;
     const startHour = monthlyStats.businessStartHour ?? 9;
     const todayBusinessDate = getBusinessDate(Date.now(), startHour);
     const todaysRecords = history.filter(r => getBusinessDate(r.timestamp, startHour) === todayBusinessDate);
     const otherRecords = history.filter(r => getBusinessDate(r.timestamp, startHour) !== todayBusinessDate);
     
-    const startTime = todaysRecords.length > 0 
-      ? Math.min(...todaysRecords.map(r => r.timestamp)) 
-      : Date.now();
+    // ★修正: 再出庫時（切り替え時刻前）に既存のtodayStartTimeを引き継ぐ
+    let existingTodayStartTime: number | undefined = undefined;
+    try {
+      const publicStatusRef = doc(db, "public_status", user.uid);
+      const publicStatusSnap = await getDoc(publicStatusRef);
+      if (publicStatusSnap.exists()) {
+        const existingData = publicStatusSnap.data();
+        if (existingData?.todayStartTime) {
+          const existingBusinessDate = getBusinessDate(existingData.todayStartTime, startHour);
+          // 既存のtodayStartTimeが当日の営業日であれば引き継ぐ（切り替え時刻前の再出庫）
+          if (existingBusinessDate === todayBusinessDate) {
+            existingTodayStartTime = existingData.todayStartTime;
+          }
+        }
+      }
+    } catch (e) {
+      console.error("[handleStart] Failed to get existing todayStartTime:", e);
+    }
+    
+    // 当日の最初の出庫時刻を計算
+    // 1. 既存のtodayStartTimeがあればそれを使用（切り替え時刻前の再出庫）
+    // 2. なければ、既存のレコードの最小値
+    // 3. それもなければ現在時刻
+    let todayStartTime: number;
+    if (existingTodayStartTime !== undefined) {
+      todayStartTime = existingTodayStartTime;
+    } else if (todaysRecords.length > 0) {
+      todayStartTime = Math.min(...todaysRecords.map(r => r.timestamp));
+    } else {
+      todayStartTime = Date.now();
+    }
+    
+    const startTime = todayStartTime; // shift.startTimeも同じ値を使用
     
     const meta = dayMetadata[todayBusinessDate];
     const existingRest = meta?.totalRestMinutes || 0;
@@ -1568,7 +1663,15 @@ const handleStart = (goal: number, hours: number, startOdo?: number) => {
 
     setShift(newShift);
     setHistory(otherRecords);
-    saveToDB({ shift: newShift }, 'active').catch((e) => {
+    
+    // ★修正: 営業開始時にpublic_statusを即座に更新（todayStartTimeを設定）
+    saveToDB({ shift: newShift }, 'active').then(() => {
+      // saveToDB完了後、broadcastStatusを呼び出してpublic_statusを更新
+      const actingUser = { ...user, uid: targetUid } as User;
+      broadcastStatus(actingUser, newShift, otherRecords, monthlyStats, 'active').catch((e) => {
+        console.error("[handleStart] Broadcast status failed:", e);
+      });
+    }).catch((e) => {
       console.error("[handleStart] Failed to save shift:", e);
     }); 
     window.scrollTo(0, 0);
@@ -1680,8 +1783,16 @@ const handleStart = (goal: number, hours: number, startOdo?: number) => {
     setIsDailyReportOpen(false);
   };
 
-  const handleOpenRecordModal = (initialData?: Partial<SalesRecord>) => {
-    setRecordModalState({ open: true, initialData });
+  const handleOpenRecordModal = (initialData?: Partial<SalesRecord> | string, additionalData?: Partial<SalesRecord>) => {
+    // initialDataが文字列の場合はremarksとして扱う（後方互換性のため）
+    const finalInitialData: Partial<SalesRecord> = typeof initialData === 'string' 
+      ? { remarks: initialData, ...additionalData }
+      : { ...initialData, ...additionalData };
+    
+    // ★デバッグ: finalInitialDataをログ出力
+    console.log('[handleOpenRecordModal] finalInitialData:', finalInitialData);
+    
+    setRecordModalState({ open: true, initialData: finalInitialData });
     // モーダルを開いた時は'riding'状態に更新（実車表示）
     const actingUser = { ...user, uid: targetUid } as User;
     if (user && monthlyStats.userName && shift) {
@@ -2749,18 +2860,42 @@ const handleStart = (goal: number, hours: number, startOdo?: number) => {
       )}
       
       {isShiftEditOpen && shift && (
-          <ShiftEditModal 
-            shift={shift} 
-            onClose={() => setIsShiftEditOpen(false)} 
-            onSave={(st, ph) => { 
-                if(shift) { 
-                    const s = {...shift, startTime:st, plannedHours:ph}; 
-                    setShift(s); 
-                    saveToDB({shift: s}).catch((e) => {
+          <ShiftEditModal
+            shift={shift}
+            onClose={() => setIsShiftEditOpen(false)}
+            onSave={(st, ph) => {
+                if(shift && user) {
+                    const s = {...shift, startTime:st, plannedHours:ph};
+                    setShift(s);
+                    saveToDB({shift: s}).then(() => {
+                      // ★修正: 営業開始時間を変更した場合、public_statusのtodayStartTimeも更新
+                      const actingUser = { ...user, uid: targetUid } as User;
+                      const startHour = monthlyStats.businessStartHour ?? 9;
+                      const currentBusinessDate = getBusinessDate(Date.now(), startHour);
+                      const newStartBusinessDate = getBusinessDate(st, startHour);
+                      
+                      // 変更した開始時間が当日の営業日の場合、todayStartTimeを更新
+                      const newTodayStartTime = newStartBusinessDate === currentBusinessDate ? st : undefined;
+                      
+                      // broadcastStatusを呼び出してpublic_statusを更新
+                      broadcastStatus(actingUser, s, history, monthlyStats, breakState.isActive ? 'break' : 'active').then(() => {
+                        // todayStartTimeを明示的に更新（broadcastStatusで設定されない場合があるため）
+                        if (newTodayStartTime !== undefined) {
+                          const publicStatusRef = doc(db, "public_status", user.uid);
+                          setDoc(publicStatusRef, { 
+                            todayStartTime: newTodayStartTime 
+                          }, { merge: true }).catch((e) => {
+                            console.error("[onSave] Failed to update todayStartTime:", e);
+                          });
+                        }
+                      }).catch((e) => {
+                        console.error("[onSave] Broadcast status failed:", e);
+                      });
+                    }).catch((e) => {
                       console.error("[onSave] Failed to save shift:", e);
-                    }); 
+                    });
                 }
-            }} 
+            }}
           />
       )}
 
